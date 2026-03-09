@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yorkut - Comunidades</title>
+<link rel="stylesheet" href="/styles/profile.css">
+<style>
+    .comm-list-section { margin-bottom: 25px; }
+    .comm-list-section h3 { font-size: 14px; color: var(--title); border-bottom: 1px solid var(--line); padding-bottom: 5px; margin-bottom: 15px; }
+    .comm-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
+    .comm-card { display: flex; gap: 15px; padding: 12px; border: 1px solid var(--line); border-radius: 4px; background: #fdfdfd; align-items: center; transition: 0.2s; }
+    .comm-card:hover { border-color: #a5bce3; background: #f4f7fc; }
+    .comm-pic { width: 80px; aspect-ratio: 3 / 4; flex-shrink: 0; background: #e4ebf5; border: 1px solid #c0d0e6; border-radius: 3px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+    .comm-pic img { width: 100%; height: 100%; object-fit: cover; }
+    .comm-info { flex: 1; overflow: hidden; }
+    .comm-name { font-weight: bold; font-size: 13px; color: var(--link); text-decoration: none; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 5px; }
+    .comm-name:hover { text-decoration: underline; }
+    .comm-meta { font-size: 10px; color: #666; line-height: 1.4; }
+    .icon-action-btn { background: #f4f7fc; border: 1px solid #c0d0e6; color: var(--link); cursor: pointer; padding: 4px 10px; border-radius: 20px; font-weight: bold; font-size: 10px; display: inline-flex; align-items: center; gap: 5px; transition: 0.2s; text-decoration: none; }
+    .icon-action-btn:hover { background: #eef4ff; border-color: var(--orkut-blue); }
+    @media (max-width: 768px) { .comm-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div id="app-header"></div>
+<div class="container">
+    <div id="app-left-col" class="left-col"></div>
+    <div class="center-col" style="flex:1;">
+        <div class="breadcrumb">
+            <a href="/profile.php">Início</a> > Minhas Comunidades
+        </div>
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h1 class="orkut-name" style="font-size: 22px; margin: 0;">
+                    Minhas Comunidades <span style="font-size: 16px; color:#666;">(0)</span>
+                </h1>
+                <a href="#" class="icon-action-btn" style="padding: 6px 12px; font-size: 11px;">➕ Criar Comunidade</a>
+            </div>
+            <div style="text-align:center; padding:30px; color:#999; font-style:italic; border:1px dashed var(--line); border-radius:4px; background:#f9f9f9;">
+                Você ainda não participa de nenhuma comunidade.
+            </div>
+        </div>
+    </div>
+</div>
+<div id="app-footer"></div>
+<script src="/js/toast.js"></script>
+<script src="/js/layout.js"></script>
+<script>document.addEventListener('DOMContentLoaded', () => { loadLayout({ activePage: 'comunidades' }); });</script>
+</body>
+</html>

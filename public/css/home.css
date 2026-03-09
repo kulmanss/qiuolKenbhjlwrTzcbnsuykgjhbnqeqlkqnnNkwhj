@@ -1,0 +1,231 @@
+/* ===== Reset ===== */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: Tahoma, Arial, Helvetica, sans-serif; font-size: 12px; color: #333; background: #dbe3ef; min-height: 100vh; }
+a { color: #0000cc; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ===== Topbar ===== */
+.topbar {
+    background: linear-gradient(to bottom, #7fa3d4, #6b91c3);
+    border-bottom: 2px solid #5a7fad;
+    padding: 0;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+.topbar-content {
+    max-width: 960px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    padding: 8px 15px;
+    gap: 15px;
+}
+.topbar-logo {
+    font-size: 28px;
+    font-weight: bold;
+    color: #fff;
+    letter-spacing: -2px;
+    text-shadow: 1px 1px 0 rgba(0,0,0,0.2);
+    flex-shrink: 0;
+}
+.topbar-logo:hover { text-decoration: none; opacity: 0.9; }
+.topbar-logo sup { font-size: 8px; color: rgba(255,255,255,0.7); letter-spacing: 0; text-shadow: none; }
+.topbar-search { display: flex; flex: 1; max-width: 280px; }
+.topbar-search input {
+    flex: 1;
+    padding: 5px 8px;
+    border: 1px solid #5a7fad;
+    border-right: none;
+    border-radius: 3px 0 0 3px;
+    font-size: 12px;
+    outline: none;
+}
+.topbar-search input:focus { border-color: #e6399b; }
+.search-btn {
+    padding: 5px 10px;
+    background: linear-gradient(#fff, #ddd);
+    border: 1px solid #5a7fad;
+    border-radius: 0 3px 3px 0;
+    cursor: pointer;
+    font-size: 11px;
+}
+.topbar-nav { display: flex; gap: 4px; margin-left: auto; }
+.topbar-link {
+    color: #fff;
+    font-size: 11px;
+    font-weight: bold;
+    padding: 5px 10px;
+    border-radius: 3px;
+    transition: background 0.15s;
+}
+.topbar-link:hover { background: rgba(255,255,255,0.15); text-decoration: none; }
+.topbar-link.active { background: rgba(255,255,255,0.25); }
+
+/* ===== Main Container ===== */
+.main-container {
+    max-width: 960px;
+    margin: 15px auto;
+    padding: 0 10px;
+}
+.content-area {
+    display: flex;
+    gap: 12px;
+}
+
+/* ===== Sidebar Left ===== */
+.sidebar-left { width: 200px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
+
+.mini-profile {
+    background: #fff;
+    border: 1px solid #a5bce3;
+    border-radius: 6px;
+    padding: 15px;
+    text-align: center;
+}
+.mini-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 4px;
+    border: 2px solid #a5bce3;
+    background: #eee;
+    margin-bottom: 8px;
+    object-fit: cover;
+}
+.mini-name { font-size: 13px; color: #e6399b; margin-bottom: 3px; }
+.mini-email { font-size: 10px; color: #888; }
+
+/* ===== Sidebar Box ===== */
+.sidebar-box {
+    background: #fff;
+    border: 1px solid #a5bce3;
+    border-radius: 6px;
+    overflow: hidden;
+}
+.sidebar-box h4 {
+    background: linear-gradient(#edf3fb, #e4ebf5);
+    padding: 8px 12px;
+    font-size: 11px;
+    color: #3b5998;
+    border-bottom: 1px solid #a5bce3;
+}
+.sidebar-box .loading-text { padding: 10px 12px; font-size: 11px; color: #888; }
+
+/* ===== Convites ===== */
+.convites-list { list-style: none; padding: 8px 12px; }
+.convites-list li {
+    padding: 5px 0;
+    border-bottom: 1px solid #eee;
+    font-size: 11px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.convites-list li:last-child { border-bottom: none; }
+.convites-list code {
+    background: #f5f5f5;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    color: #e6399b;
+    letter-spacing: 0.5px;
+}
+.convites-list small { color: #888; font-size: 10px; }
+
+/* ===== Quick Links ===== */
+.quick-links { list-style: none; padding: 6px 0; }
+.quick-links li { padding: 0; }
+.quick-links li a {
+    display: block;
+    padding: 6px 12px;
+    font-size: 11px;
+    color: #333;
+    transition: background 0.15s;
+}
+.quick-links li a:hover { background: #f0f4fa; text-decoration: none; }
+
+/* ===== Feed ===== */
+.feed { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+
+.feed-box {
+    background: #fff;
+    border: 1px solid #a5bce3;
+    border-radius: 6px;
+    overflow: hidden;
+}
+.feed-box h4 {
+    background: linear-gradient(#edf3fb, #e4ebf5);
+    padding: 8px 12px;
+    font-size: 12px;
+    color: #3b5998;
+    border-bottom: 1px solid #a5bce3;
+}
+.feed-box > p { padding: 12px; font-size: 12px; line-height: 1.5; color: #555; }
+
+.feed-item {
+    padding: 10px 12px;
+    border-bottom: 1px solid #eee;
+    font-size: 12px;
+    line-height: 1.4;
+}
+.feed-item:last-child { border-bottom: none; }
+.feed-time { font-size: 10px; color: #999; display: block; margin-top: 4px; }
+
+/* ===== Scrap Input ===== */
+.scrap-input {
+    width: 100%;
+    border: none;
+    border-bottom: 1px solid #eee;
+    padding: 10px 12px;
+    font-size: 12px;
+    font-family: inherit;
+    resize: vertical;
+    outline: none;
+}
+.scrap-input:focus { background: #fafbff; }
+.btn-scrap {
+    margin: 8px 12px 10px;
+    padding: 5px 14px;
+    background: linear-gradient(#ffffff, #dcdcdc);
+    border: 1px solid #666;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-family: inherit;
+}
+.btn-scrap:hover { background: linear-gradient(#f8f8f8, #cfcfcf); }
+
+/* ===== Sidebar Right ===== */
+.sidebar-right { width: 170px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
+
+.stats-list { list-style: none; padding: 8px 12px; }
+.stats-list li {
+    padding: 5px 0;
+    border-bottom: 1px solid #eee;
+    font-size: 11px;
+    display: flex;
+    justify-content: space-between;
+}
+.stats-list li:last-child { border-bottom: none; }
+
+/* ===== Footer ===== */
+.footer {
+    max-width: 960px;
+    margin: 15px auto;
+    padding: 10px;
+    text-align: center;
+    font-size: 11px;
+    color: #666;
+}
+.footer a { color: #0000cc; }
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+    .topbar-content { flex-wrap: wrap; gap: 8px; }
+    .topbar-search { max-width: 100%; order: 3; width: 100%; }
+    .topbar-nav { gap: 2px; font-size: 10px; }
+    .topbar-link { padding: 4px 6px; font-size: 10px; }
+    .content-area { flex-direction: column; }
+    .sidebar-left, .sidebar-right { width: 100%; }
+    .sidebar-right { order: -1; }
+}

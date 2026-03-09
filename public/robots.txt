@@ -1,0 +1,23 @@
+# Yorkut - Rede Social Privada
+# Apenas a pagina inicial e de registro sao publicas
+
+User-agent: *
+Disallow: /api/
+Disallow: /profile.php
+Disallow: /home.php
+Disallow: /amigos.php
+Disallow: /comunidades.php
+Disallow: /mensagens.php
+Disallow: /configuracoes.php
+Disallow: /fotos.php
+Disallow: /videos.php
+Disallow: /admin.php
+Disallow: /colheita.php
+Disallow: /depoimentos.php
+Disallow: /recados.php
+Disallow: /buscar.php
+Disallow: /temas.php
+Disallow: /uploads/
+Allow: /
+Allow: /index.php
+Allow: /registro.php

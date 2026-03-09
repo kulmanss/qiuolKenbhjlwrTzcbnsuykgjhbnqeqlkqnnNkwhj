@@ -1,0 +1,139 @@
+﻿/* =========================================
+   ESTILOS DOS RECADOS (recados.css)
+========================================= */
+
+/* Ãrea de Texto Simples e Segura */
+.editor-area-simple {
+    width: 100%;
+    min-height: 90px;
+    border: 1px solid #c0d0e6;
+    border-radius: 4px;
+    background: #fff;
+    font-size: 13px;
+    padding: 12px;
+    color: #333;
+    outline: none;
+    resize: vertical;
+    box-sizing: border-box;
+    font-family: inherit;
+    transition: 0.3s;
+}
+.editor-area-simple:focus {
+    border-color: var(--orkut-pink);
+    box-shadow: 0 0 5px rgba(230, 57, 155, 0.2);
+}
+
+/* Barra de Progresso (Anti-Bot) */
+.loading-container {
+    width: 100%;
+    height: 6px;
+    background-color: #e4ebf5;
+    border-radius: 3px;
+    margin-top: 10px;
+    margin-bottom: 10px;
+    overflow: hidden;
+    display: none;
+}
+.loading-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #e6399b, #ff7eb3);
+    transition: width 3s linear;
+}
+
+/* BotÃµes Modernizados */
+.btn-action {
+    background: #f4f7fc;
+    border: 1px solid #c0d0e6;
+    color: var(--link);
+    cursor: pointer;
+    padding: 6px 15px;
+    border-radius: 20px;
+    font-weight: bold;
+    font-size: 11px;
+    transition: 0.2s;
+}
+.btn-action:hover {
+    background: #eef4ff;
+    border-color: var(--orkut-blue);
+}
+.btn-action:disabled {
+    background: #f0f0f0;
+    color: #999;
+    border-color: #ddd;
+    cursor: not-allowed;
+}
+
+.btn-delete {
+    background: #ffe6e6;
+    border: 1px solid #ffb3b3;
+    color: #cc0000;
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: bold;
+    transition: 0.2s;
+}
+.btn-delete:hover {
+    background: #ffcccc;
+    border-color: #cc0000;
+}
+
+/* Lembrete de Privacidade */
+.alert-publico {
+    font-size: 11px;
+    color: #666;
+    background: #fffdf5;
+    border: 1px solid #ffe8a1;
+    padding: 10px;
+    border-radius: 4px;
+    margin-bottom: 15px;
+    text-align: center;
+}
+.alert-publico a { color: var(--link); font-weight: bold; }
+
+/* Lista de Recados */
+.scrap-list { display: flex; flex-direction: column; gap: 15px; margin-top: 15px; }
+.scrap-item { display: flex; gap: 15px; background: #fdfdfd; border: 1px solid var(--line); padding: 15px; border-radius: 4px; position: relative; }
+.scrap-item:hover { background: #f4f7fc; border-color: #a5bce3; }
+
+/* Foto do Remetente (Exatamente 1:1 e Redonda) */
+.scrap-sender-pic { width: 60px; flex-shrink: 0; text-align: center; }
+.scrap-sender-pic img { width: 60px; height: 60px; object-fit: cover; border-radius: 50%; border: 1px solid #ccc; background: #eee; }
+
+/* Estrutura do Recado */
+.scrap-content { flex: 1; min-width: 0; }
+.scrap-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 11px; }
+.scrap-info-left a { font-weight: bold; font-size: 13px; color: var(--link); text-decoration: none; }
+.scrap-info-left a:hover { text-decoration: underline; }
+.scrap-time { color: #999; margin-right: 10px; }
+.scrap-text { font-size: 12px; line-height: 1.4; color: #333; margin-bottom: 10px; word-wrap: break-word; overflow: hidden; }
+.scrap-text img { max-width: 100%; height: auto; display: inline-block; border-radius: 4px; margin: 4px 0; }
+.scrap-text a { color: #0000cc; text-decoration: underline; }
+.scrap-text a:hover { color: #e6399b; }
+
+/* Respostas */
+.scrap-reply-box { background: #fff; border: 1px solid #e4ebf5; padding: 10px; border-radius: 4px; display: flex; gap: 10px; margin-top: 10px; border-left: 3px solid var(--orkut-pink); }
+
+/* Foto de Resposta (Exatamente 1:1 e Redonda) */
+.scrap-reply-pic { width: 40px; flex-shrink: 0; }
+.scrap-reply-pic img { width: 40px; height: 40px; object-fit: cover; border-radius: 50%; border: 1px solid #ccc; background: #eee; }
+
+.scrap-reply-content { flex: 1; font-size: 11px; }
+.scrap-reply-text { color: #444; line-height: 1.4; margin: 5px 0; word-wrap: break-word; }
+.scrap-reply-time { color: #999; font-size: 9px; }
+
+.reply-form { display: none; margin-top: 10px; background: #fdfdfd; padding: 10px; border: 1px solid #e4ebf5; border-radius: 4px; }
+.reply-action { margin-top: 10px; }
+.reply-action a { color: var(--link); font-weight: bold; font-size: 11px; text-decoration: none; }
+
+/* Ferramentas do Topo */
+.toolbar-top { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-top: 15px; font-size: 11px; }
+.select-links { margin-top: 5px; color: #666; font-size: 11px; }
+.select-links a { color: var(--link); text-decoration: none; }
+.empty-msg { text-align: center; padding: 30px; color: #999; font-style: italic; border: 1px dashed var(--line); border-radius: 4px; background: #f9f9f9; }
+
+/* ForÃ§a a foto do menu lateral a ficar 1:1 e quadrada padrÃ£o Orkut */
+.profile-pic-sidebar { width: 100%; max-width: 160px; margin: 0 auto 10px; aspect-ratio: 1 / 1; border: 1px solid #ccc; border-radius: 4px; overflow: hidden; background: #e4ebf5; display: flex; justify-content: center; align-items: center;}
+.profile-pic-sidebar img { width: 100%; height: 100%; object-fit: cover; }

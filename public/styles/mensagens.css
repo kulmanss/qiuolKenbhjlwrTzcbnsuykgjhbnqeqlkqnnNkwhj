@@ -1,0 +1,27 @@
+﻿/* ==================================================
+   YORKUT - MENSAGENS PARTICULARES CSS
+   ================================================== */
+
+.msg-tabs { display: flex; border-bottom: 2px solid var(--line); margin-bottom: 15px; }
+.msg-tab { padding: 8px 15px; border: 1px solid var(--line); border-bottom: none; border-radius: 4px 4px 0 0; background: #e4ebf5; color: var(--link); font-weight: bold; margin-right: 5px; text-decoration: none; font-size: 11px; }
+.msg-tab.active { background: #fff; border-bottom: 2px solid #fff; margin-bottom: -2px; padding-bottom: 10px; color: #333; }
+.msg-tab:hover:not(.active) { background: #dbe3ef; text-decoration: none; }
+
+.msg-table { width: 100%; border-collapse: collapse; font-size: 11px; text-align: left; }
+.msg-table th { background: #eef4ff; color: var(--title); padding: 8px; border-bottom: 1px solid var(--line); }
+.msg-table td { padding: 10px 8px; border-bottom: 1px dotted #ccc; vertical-align: middle; }
+.msg-table tr:hover td { background: #fdfdfd; }
+.msg-row.unread td { font-weight: bold; background: #fff8c3; }
+
+.msg-icon { font-size: 14px; text-align: center; width: 30px; }
+.msg-link { color: var(--link); text-decoration: none; display: block; }
+.msg-link:hover { text-decoration: underline; }
+
+.read-status { font-size: 9px; padding: 2px 6px; border-radius: 3px; font-weight: bold; }
+.status-lido { background: #e4f2e9; color: #2a6b2a; border: 1px solid #8bc59e; }
+.status-naolido { background: #ffe6e6; color: #cc0000; border: 1px solid #cc0000; }
+
+.msg-body-box { background: #f4f7fc; border: 1px solid var(--line); padding: 15px; border-radius: 4px; margin-top: 15px; line-height: 1.5; font-size: 12px; color: #333; }
+
+.form-msg select, .form-msg input[type="text"] { width: 100%; padding: 8px; border: 1px solid #a5bce3; margin-bottom: 10px; border-radius: 3px; font-size: 11px; box-sizing: border-box; }
+.form-msg textarea { width: 100%; height: 120px; padding: 8px; border: 1px solid #a5bce3; margin-bottom: 10px; border-radius: 3px; font-family: Arial; font-size: 12px; resize: vertical; box-sizing: border-box; }

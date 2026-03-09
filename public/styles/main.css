@@ -1,0 +1,642 @@
+﻿/* ==================================================
+   YORKUT - CSS GLOBAL (DESKTOP FIRST)
+   ================================================== */
+:root {
+    --bg: #d9e6f4;
+    --line: #b8cbe6;
+    --title: #2f4f87;
+    --link: #3b5998;
+    --orkut-blue: #6d84b4; 
+    --orkut-light: #bfd0ea;
+    --orkut-pink: #e6399b;
+}
+
+* { 
+    box-sizing: border-box; 
+}
+
+body { 
+    margin: 0; 
+    background: var(--bg); 
+    font-family: Tahoma, Arial, sans-serif; 
+    font-size: 11px; 
+    color: #333; 
+}
+
+a { 
+    color: var(--link); 
+    text-decoration: none; 
+}
+
+a:hover { 
+    text-decoration: underline; 
+}
+
+/* ==================================================
+   CABEÃALHOS (HEADERS CHAPADOS E CENTRALIZADOS)
+   ================================================== */
+.header-wrapper { 
+    background: var(--orkut-blue); 
+    border-bottom: 1px solid #3f5f98; 
+    width: 100%; 
+}
+
+.header-main { 
+    max-width: 950px; 
+    margin: 0 auto; 
+    padding: 6px 10px; 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    color: #fff; 
+}
+
+.logo-container {
+    display: flex; 
+    align-items: center; 
+    gap: 15px;
+}
+
+.logo { 
+    background: #fff; 
+    color: var(--orkut-pink); 
+    font-weight: bold; 
+    font-size: 22px; 
+    padding: 0 5px; 
+    border-radius: 3px; 
+    text-decoration: none; 
+    letter-spacing: -1px; 
+    line-height: 1.2; 
+}
+
+.nav-main { 
+    display: flex; 
+    align-items: center; 
+    gap: 15px; 
+}
+
+.nav-main a { 
+    color: #fff; 
+    font-weight: bold; 
+    font-size: 11px; 
+}
+
+.header-sub-wrapper { 
+    background: var(--orkut-light); 
+    border-bottom: 1px solid #a2b5d4; 
+    width: 100%; 
+}
+
+.header-sub { 
+    max-width: 950px; 
+    margin: 0 auto; 
+    padding: 6px 10px; 
+    display: flex; 
+    gap: 15px; 
+    font-size: 11px; 
+    align-items: center; 
+}
+
+.header-sub a { 
+    color: var(--title); 
+    font-weight: bold; 
+}
+
+/* Barras de Pesquisa no Header */
+.search-bars { 
+    display: flex; 
+    gap: 5px; 
+    align-items: center; 
+    margin-left: auto; 
+}
+
+.search-form { 
+    display: flex; 
+    align-items: center; 
+    background: white; 
+    padding: 2px; 
+    border-radius: 3px; 
+}
+
+.search-form input { 
+    border: none; 
+    font-size: 10px; 
+    width: 130px; 
+    outline: none; 
+    padding: 2px 5px; 
+    color: #333; 
+}
+
+.search-form button { 
+    background: none; 
+    color: var(--orkut-blue); 
+    border: none; 
+    cursor: pointer; 
+    font-size: 11px; 
+    padding: 2px 4px; 
+}
+
+/* BotÃ£o de Convite & Pop-up */
+.btn-invite { 
+    background-color: var(--orkut-pink); 
+    color: white !important; 
+    font-weight: bold !important; 
+    padding: 4px 10px; 
+    border-radius: 12px; 
+    border: none; 
+    cursor: pointer; 
+    text-decoration: none !important; 
+    font-size: 11px; 
+}
+
+.btn-invite:hover { 
+    background-color: #c92c85; 
+    text-decoration: none; 
+}
+
+.popup-convite { 
+    display: none; 
+    position: absolute; 
+    top: 35px; 
+    right: 0; 
+    width: 280px; 
+    background-color: #fff; 
+    border: 2px solid var(--orkut-pink); 
+    padding: 15px; 
+    border-radius: 6px; 
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2); 
+    z-index: 1000; 
+    color: #333; 
+    text-align: left; 
+    line-height: 1.4; 
+    word-wrap: break-word; 
+}
+
+.popup-convite::before { 
+    content: ''; 
+    position: absolute; 
+    top: -10px; 
+    right: 20px; 
+    border-width: 0 10px 10px 10px; 
+    border-style: solid; 
+    border-color: transparent transparent var(--orkut-pink) transparent; 
+}
+
+.notification-badge { 
+    background-color: #cc0000; 
+    color: #fff; 
+    padding: 1px 4px; 
+    border-radius: 3px; 
+    font-size: 9px; 
+    margin-left: 3px; 
+    vertical-align: top; 
+}
+
+/* ==================================================
+   LAYOUT DE COLUNAS E CAIXAS
+   ================================================== */
+.container { 
+    max-width: 950px; 
+    margin: 15px auto; 
+    display: flex; 
+    gap: 10px; 
+    padding: 0 10px; 
+    align-items: flex-start; 
+    min-height: 500px; 
+}
+
+.left-col { 
+    width: 180px; 
+    flex-shrink: 0; 
+}
+
+.center-col { 
+    flex: 1; 
+    min-width: 0; 
+}
+
+.right-col { 
+    width: 250px; 
+    flex-shrink: 0; 
+    display: flex; 
+    flex-direction: column; 
+    gap: 10px; 
+}
+
+/* Elementos PadrÃ£o (Cards/Boxes) */
+.card { 
+    background: #fff; 
+    border: 1px solid var(--line); 
+    border-radius: 4px; 
+    padding: 15px; 
+    margin-bottom: 10px; 
+}
+
+.card-left { 
+    background: #fff; 
+    border: 1px solid var(--line); 
+    border-radius: 4px; 
+    padding: 10px; 
+    margin-bottom: 10px; 
+    text-align: center; 
+}
+
+.box-sidebar { 
+    background: #fff; 
+    border: 1px solid var(--line); 
+    border-radius: 4px; 
+    overflow: hidden; 
+    padding: 10px; 
+}
+
+.box-title { 
+    font-weight: bold; 
+    color: var(--title); 
+    margin: 0 0 10px 0; 
+    font-size: 11px; 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    border-bottom: 1px solid var(--line); 
+    padding-bottom: 5px; 
+    background: var(--orkut-light); 
+    margin: -10px -10px 10px -10px; 
+    padding: 6px 10px; 
+}
+
+.box-title a { 
+    color: var(--link); 
+    font-weight: normal; 
+    font-size: 10px; 
+}
+
+/* TÃ­tulos, Textos e Breadcrumb */
+.breadcrumb { 
+    font-size: 11px; 
+    margin-bottom: 10px; 
+    color: #666; 
+    font-weight: bold; 
+}
+
+.breadcrumb a { 
+    font-weight: normal; 
+}
+
+h1.orkut-name { 
+    font-family: Tahoma, Geneva, sans-serif; 
+    font-size: 26px; 
+    color: var(--link); 
+    margin: 0 0 5px 0; 
+    font-weight: normal; 
+}
+
+h1.orkut-name::first-letter { 
+    font-size: 32px; 
+    font-family: "Trebuchet MS", Arial, sans-serif; 
+    color: var(--orkut-pink); 
+    font-weight: bold; 
+}
+
+.status-text { 
+    font-size: 12px; 
+    color: #666; 
+    margin-bottom: 15px; 
+    font-style: italic; 
+}
+
+.edit-inline { 
+    font-size: 10px; 
+    color: #0000cc; 
+    cursor: pointer; 
+    text-decoration: none; 
+    margin-left: 10px; 
+    font-family: Arial; 
+}
+
+/* ==================================================
+   WIDGETS (Sorte, Stats, Progress Bar)
+   ================================================== */
+.sorte-box { 
+    background: #fff8c3; 
+    border: 1px solid #f2e08c; 
+    padding: 8px; 
+    margin: 10px 0 15px 0; 
+    border-radius: 3px; 
+    color: #333; 
+}
+
+.integrity-bar { 
+    width: 100%; 
+    height: 8px; 
+    background: #eee; 
+    border: 1px solid #ccc; 
+    border-radius: 3px; 
+    overflow: hidden; 
+    margin-top: 3px; 
+}
+
+.integrity-fill { 
+    height: 100%; 
+    background: linear-gradient(to right, #ffd700, #32cd32); 
+}
+
+/* Stats e Trust (AvaliaÃ§Ãµes) */
+.stats-container { 
+    background: #eef4ff; 
+    border: 1px solid var(--line); 
+    border-radius: 4px; 
+    padding: 10px 15px; 
+    display: flex; 
+    justify-content: space-between; 
+    flex-wrap: wrap; 
+    align-items: center; 
+    margin-bottom: 15px; 
+}
+
+.stats-info { 
+    display: flex; 
+    gap: 20px; 
+    font-weight: bold; 
+    color: var(--link); 
+    font-size: 11px; 
+    text-align: center; 
+}
+
+.stats-info a, .stats-info span { 
+    font-size: 14px; 
+    color: var(--link); 
+    font-weight: bold; 
+    display: block; 
+    margin-top: 2px; 
+}
+
+.trust-row { 
+    display: flex; 
+    gap: 20px; 
+    align-items: center; 
+}
+
+.trust-item { 
+    text-align: center; 
+    font-size: 10px; 
+    font-weight: bold; 
+    color: #666; 
+}
+
+.trust-stars { 
+    font-size: 16px; 
+    margin-top: 2px; 
+    white-space: nowrap; 
+    font-family: "Apple Color Emoji", "Segoe UI Emoji", sans-serif; 
+}
+
+.trust-stars .off { 
+    opacity: 0.25; 
+    filter: grayscale(100%); 
+}
+
+/* Grid Lateral (Amigos, Comunidades, Visitantes) */
+.grid { 
+    display: grid; 
+    grid-template-columns: repeat(3, 1fr); 
+    gap: 8px; 
+}
+
+.grid-item { 
+    text-align: center; 
+    font-size: 10px; 
+    overflow: hidden; 
+}
+
+.grid-item a { 
+    color: var(--link); 
+    display: block; 
+}
+
+.grid-thumb { 
+    width: 100%; 
+    aspect-ratio: 1; 
+    background: #e4ebf5; 
+    border: 1px solid #c0d0e6; 
+    border-radius: 2px; 
+    overflow: hidden; 
+    margin-bottom: 3px; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+}
+
+.grid-thumb img { 
+    width: 100%; 
+    height: 100%; 
+    object-fit: cover; 
+}
+
+/* Menu Esquerdo Vertical */
+.menu-left { 
+    list-style: none; 
+    padding: 0; 
+    margin: 10px 0 0 0; 
+    text-align: left; 
+}
+
+.menu-left li { 
+    border-bottom: 1px dotted var(--line); 
+    padding: 4px 0; 
+    font-weight: bold; 
+}
+
+.menu-left li:last-child { 
+    border-bottom: none; 
+}
+
+.menu-left li a { 
+    color: var(--link); 
+    display: flex; 
+    align-items: center; 
+    gap: 6px; 
+    padding: 2px; 
+}
+
+.menu-left li a:hover { 
+    background: #eef4ff; 
+    text-decoration: none; 
+}
+
+/* ==================================================
+   ABAS CLÃSSICAS E FORMULÃRIOS
+   ================================================== */
+.tabs-nav { 
+    display: flex; 
+    border-bottom: 2px solid var(--line); 
+    margin-top: 15px; 
+}
+
+.tab-btn { 
+    background: #e4ebf5; 
+    border: 1px solid var(--line); 
+    border-bottom: none; 
+    padding: 5px 15px; 
+    margin-right: 3px; 
+    border-radius: 4px 4px 0 0; 
+    color: #2f4f87; 
+    font-weight: bold; 
+    font-size: 11px; 
+    cursor: pointer; 
+}
+
+.tab-btn.active { 
+    background: #fff; 
+    border-bottom: 2px solid #fff; 
+    margin-bottom: -1px; 
+    padding-bottom: 6px; 
+    color: #333; 
+}
+
+.tab-content { 
+    display: none; 
+    background: #fff; 
+    padding: 15px 0; 
+}
+
+.tab-content.active { 
+    display: block; 
+}
+
+.info-table { 
+    width: 100%; 
+    border-collapse: collapse; 
+    font-size: 11px; 
+}
+
+.info-table tr:nth-child(odd) { 
+    background-color: #e4ebf5; 
+}
+
+.info-table td { 
+    padding: 6px 10px; 
+    vertical-align: top; 
+}
+
+.info-label { 
+    width: 150px; 
+    text-align: right; 
+    color: #666; 
+    padding-right: 15px; 
+    font-weight: bold; 
+}
+
+.info-value { 
+    color: var(--link); 
+}
+
+.hidden-form { 
+    display: none; 
+    margin-bottom: 10px; 
+    background: #f9f9f9; 
+    padding: 15px; 
+    border: 1px solid #c0d0e6; 
+    border-radius: 5px; 
+    text-align: left; 
+}
+
+.hidden-form input[type="text"], .hidden-form select { 
+    width: 100%; 
+    box-sizing: border-box; 
+    padding: 5px; 
+    font-size: 11px; 
+    margin-bottom: 8px; 
+    border: 1px solid #a5bce3; 
+}
+
+.hidden-form textarea { 
+    width: 100%; 
+    box-sizing: border-box; 
+    height: 60px; 
+    padding: 5px; 
+    font-size: 11px; 
+    font-family: Arial; 
+    margin-bottom: 8px; 
+    border: 1px solid #a5bce3; 
+    resize: vertical; 
+}
+
+.hidden-form button { 
+    padding: 4px 10px; 
+    cursor: pointer; 
+    font-size: 11px; 
+    font-weight: bold; 
+    background: #e4ebf5; 
+    border: 1px solid #a5bce3; 
+    color: var(--link); 
+}
+
+.form-group-title { 
+    background: var(--line); 
+    color: #fff; 
+    padding: 4px 8px; 
+    font-weight: bold; 
+    margin: 10px 0; 
+    border-radius: 3px; 
+}
+
+/* ==================================================
+   RODAPÃ
+   ================================================== */
+.footer { 
+    text-align: center; 
+    font-size: 11px; 
+    color: #666; 
+    padding: 20px 0; 
+    border-top: 1px solid var(--line); 
+    margin-top: 30px; 
+    background-color: var(--bg); 
+    width: 100%; 
+}
+
+.footer a { 
+    color: var(--link); 
+    margin: 0 5px; 
+}
+
+.google-logo { 
+    font-weight: bold; 
+    color: #666; 
+    font-size: 12px; 
+}
+
+/* ==================================================
+   RESPONSIVIDADE (MOBILE)
+   ================================================== */
+@media (max-width: 768px) {
+    .container { 
+        flex-direction: column; 
+        padding: 5px; 
+    }
+    
+    .left-col, .right-col { 
+        width: 100%; 
+    }
+    
+    .header-main { 
+        flex-direction: column; 
+        gap: 8px; 
+        justify-content: center; 
+    }
+    
+    .header-sub { 
+        overflow-x: auto; 
+        white-space: nowrap; 
+        padding-bottom: 8px; 
+    }
+    
+    .stats-container { 
+        flex-direction: column; 
+        gap: 15px; 
+        justify-content: center; 
+    }
+    
+    .hide-on-mobile { 
+        display: none !important; 
+    }
+}

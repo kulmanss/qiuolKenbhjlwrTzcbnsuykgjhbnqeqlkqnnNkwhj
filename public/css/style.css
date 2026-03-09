@@ -1,0 +1,302 @@
+/* ===== Reset ===== */
+* {
+    box-sizing: border-box;
+}
+
+/* ===== Body ===== */
+body {
+    background: linear-gradient(to bottom, #dbe3ef 0%, #cdd9ea 100%);
+    font-family: Tahoma, Arial, Helvetica, sans-serif;
+    font-size: 12px;
+    color: #000;
+    margin: 0;
+    padding: 20px 10px;
+    display: flex;
+    justify-content: center;
+}
+
+/* ===== Links ===== */
+a {
+    color: #0000cc;
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+/* ===== Container ===== */
+.container {
+    width: 100%;
+    max-width: 900px;
+}
+
+/* ===== Warning Box (topo) ===== */
+.warning-box {
+    background: linear-gradient(#fffbdc, #fef8cc);
+    border: 1px solid #ffd324;
+    padding: 10px;
+    margin-bottom: 15px;
+    color: #cc0000;
+    font-weight: bold;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    text-align: center;
+}
+
+/* ===== Content Wrapper (duas colunas) ===== */
+.content-wrapper {
+    display: flex;
+    gap: 15px;
+}
+
+/* ===== Coluna Esquerda (logo + features) ===== */
+.left-col {
+    flex: 1;
+    background: #fff;
+    border: 1px solid #a5bce3;
+    padding: 50px 30px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+/* ===== Logo ===== */
+.logo {
+    font-size: 75px;
+    font-weight: bold;
+    color: #e6399b;
+    margin-bottom: 25px;
+    letter-spacing: -4px;
+    text-shadow: 2px 2px 0 #f4a1cd, 4px 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.logo sup {
+    font-size: 14px;
+    color: #888;
+    letter-spacing: 0;
+    text-shadow: none;
+}
+
+/* ===== Features (textos descritivos) ===== */
+.features {
+    line-height: 1.7;
+    text-align: center;
+    font-size: 13px;
+    color: #333;
+}
+
+.features span {
+    color: #b30059;
+    font-weight: bold;
+}
+
+/* ===== Coluna Direita ===== */
+.right-col {
+    width: 300px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+/* ===== Login Box & Join Box ===== */
+.login-box,
+.join-box {
+    background: linear-gradient(#edf3fb, #e4ebf5);
+    border: 1px solid #a5bce3;
+    padding: 18px;
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.login-box h2 {
+    font-size: 12px;
+    font-weight: normal;
+    margin-bottom: 15px;
+    color: #333;
+}
+
+/* ===== Form Groups ===== */
+.form-group {
+    display: flex;
+    margin-bottom: 10px;
+    align-items: center;
+}
+
+.form-group label {
+    width: 55px;
+}
+
+.form-group input[type="text"],
+.form-group input[type="password"] {
+    flex: 1;
+    padding: 5px;
+    border: 1px solid #7f9db9;
+    border-radius: 4px;
+    background-color: #fff;
+}
+
+.form-group input:focus {
+    outline: none;
+    border-color: #e6399b;
+    box-shadow: 0 0 3px rgba(230, 57, 155, 0.4);
+}
+
+/* ===== Login Actions (checkbox + botão) ===== */
+.login-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 15px;
+    padding-left: 55px;
+}
+
+.remember-me {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: #333;
+    cursor: pointer;
+    user-select: none;
+}
+
+.remember-me input {
+    margin: 0;
+    cursor: pointer;
+}
+
+/* ===== Botão Login ===== */
+.btn-login {
+    padding: 5px 20px;
+    background: linear-gradient(#ffffff, #dcdcdc);
+    border: 1px solid #666;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: bold;
+    width: fit-content;
+}
+
+.btn-login:hover {
+    background: linear-gradient(#f8f8f8, #cfcfcf);
+}
+
+/* ===== Link "Esqueceu a senha" ===== */
+.forgot-link {
+    display: block;
+    text-align: center;
+    margin-top: 18px;
+    font-size: 11px;
+}
+
+/* ===== Join Box ===== */
+.join-box {
+    text-align: center;
+    padding: 25px 15px;
+}
+
+.join-box a {
+    font-size: 15px;
+    font-weight: bold;
+    color: #e6399b;
+    display: inline-block;
+    margin-top: 5px;
+}
+
+.join-box a:hover {
+    text-decoration: underline;
+}
+
+/* ===== Footer ===== */
+.footer {
+    background-color: #c0d0e6;
+    text-align: center;
+    padding: 10px;
+    margin-top: 15px;
+    border: 1px solid #a5bce3;
+    border-radius: 0 0 8px 8px;
+    font-size: 11px;
+    color: #333;
+}
+
+/* ===== Error Message ===== */
+.error-msg {
+    color: #cc0000;
+    font-weight: bold;
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+/* ===== Responsivo (tablet) ===== */
+@media (max-width: 900px) {
+    .content-wrapper {
+        flex-direction: column;
+    }
+
+    .right-col {
+        width: 100%;
+    }
+
+    .left-col {
+        padding: 35px 20px;
+    }
+
+    .logo {
+        font-size: 60px;
+    }
+}
+
+/* ===== Responsivo (mobile) ===== */
+@media (max-width: 480px) {
+    body {
+        padding: 10px;
+    }
+
+    .logo {
+        font-size: 48px;
+        letter-spacing: -2px;
+    }
+
+    .features {
+        font-size: 12px;
+    }
+
+    .form-group {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .form-group label {
+        width: 100%;
+        margin-bottom: 3px;
+    }
+
+    .login-actions {
+        padding-left: 0;
+        gap: 15px;
+    }
+
+    .remember-me {
+        font-size: 13px;
+    }
+
+    .btn-login {
+        width: 100%;
+    }
+}
+
+/* ===== Error/Success Messages ===== */
+.error-msg {
+    background: #ffe6e6;
+    border: 1px solid #cc0000;
+    color: #cc0000;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    font-weight: bold;
+    border-radius: 4px;
+    font-size: 11px;
+    text-align: center;
+}

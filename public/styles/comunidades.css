@@ -1,0 +1,74 @@
+/* ==================================================
+   URKUT - COMUNIDADES, FÓRUM E ENQUETES CSS
+   ================================================== */
+.forum-table{width:100%;border-collapse:collapse;font-size:11px;margin-top:10px;}
+.forum-table th{background:#e8eef7;color:#3b5998;padding:8px;text-align:left;border:1px solid #c0d0e6;}
+.forum-table td{padding:8px;border:1px solid #e4ebf5;background:#fff;}
+.forum-table tr:hover td{background:#f0f4f9;}
+.forum-title{font-weight:bold;font-size:12px;color:var(--link);text-decoration:none;}
+.forum-title:hover{text-decoration:underline;}
+.forum-meta{font-size:9px;color:#888;margin-top:3px;}
+
+.topic-post{display:flex;border:1px solid var(--line);border-radius:4px;margin-bottom:10px;background:#fdfdfd;}
+.topic-author{width:100px;padding:10px;background:#f4f7fc;border-right:1px solid var(--line);text-align:center;font-size:10px;flex-shrink:0;}
+.topic-author img{width:60px;height:60px;object-fit:cover;border:1px solid #c0d0e6;background:#e4ebf5;margin-bottom:5px;border-radius:3px;}
+.topic-content{padding:15px;flex:1;font-size:12px;line-height:1.5;color:#333;position:relative;}
+.topic-date{position:absolute;top:5px;right:10px;font-size:9px;color:#999;}
+
+.poll-card{border:1px solid var(--line);padding:15px;border-radius:4px;margin-bottom:15px;background:#f9f9f9;}
+.poll-title{font-weight:bold;font-size:14px;color:var(--title);margin-bottom:15px;border-bottom:1px dotted #ccc;padding-bottom:5px;}
+.poll-option{display:flex;align-items:center;margin-bottom:10px;font-size:12px;}
+.poll-bar-bg{flex:1;height:12px;background:#e4ebf5;border-radius:6px;margin:0 10px;overflow:hidden;border:1px solid #c0d0e6;}
+.poll-bar-fill{height:100%;background:linear-gradient(to right,#6d84b4,#3b5998);}
+.poll-votes{width:60px;text-align:right;font-size:10px;color:#666;font-weight:bold;}
+.poll-radio{margin-right:10px;cursor:pointer;}
+
+.comm-menu{list-style:none;padding:0;margin:15px 0 0 0;text-align:left;border-top:1px solid var(--line);}
+.comm-menu li{border-bottom:1px dotted var(--line);padding:4px 0;font-weight:bold;}
+.comm-menu li:last-child{border-bottom:none;}
+.comm-menu li a{color:var(--link);display:flex;align-items:center;gap:6px;padding:4px;text-decoration:none;}
+.comm-menu li a:hover{background:#eef4ff;}
+.comm-menu li.active{background:#eef4ff;border-left:3px solid var(--orkut-pink);}
+
+/* Informações da Comunidade (Página Inicial) */
+.info-table{width:100%;font-size:11px;margin-bottom:20px;border-collapse:collapse;}
+.info-table td{padding:5px;vertical-align:top;border-bottom:1px dotted #ccc;}
+.info-label{width:90px;color:#666;font-weight:bold;text-align:right;}
+
+/* Caixas Resumo (Últimos Fóruns e Enquetes) */
+.mini-box-list{background:#f9f9f9;border:1px solid var(--line);padding:10px;border-radius:4px;margin-bottom:15px;}
+.mini-box-list h3{margin:0 0 10px 0;font-size:12px;color:var(--title);border-bottom:1px solid #ccc;padding-bottom:5px;}
+.mini-item{display:flex;justify-content:space-between;font-size:11px;padding:5px 0;border-bottom:1px dashed #e4ebf5;}
+.mini-item:last-child{border:none;}
+
+/* Editor de Texto (Criar Comunidade) */
+.editor-toolbar{background:#e4ebf5;border:1px solid #a5bce3;border-bottom:none;padding:5px;display:flex;gap:5px;border-radius:3px 3px 0 0;}
+.editor-toolbar button{background:#fff;border:1px solid #ccc;cursor:pointer;font-weight:bold;padding:2px 6px;font-size:11px;border-radius:2px;}
+.editor-area{width:100%;height:120px;border:1px solid #a5bce3;padding:10px;background:#fff;overflow-y:auto;border-radius:0 0 3px 3px;font-size:11px;margin-bottom:10px;}
+
+/* Modais e Popups Centralizados Absolutos */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255,255,255,0.8);
+    z-index: 2000;
+}
+
+.modal-box {
+    background: #fff;
+    border: 2px solid var(--orkut-blue);
+    border-radius: 6px;
+    padding: 20px;
+    width: 350px;
+    text-align: center;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    /* Mágica para centralizar perfeitamente no meio da tela */
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}

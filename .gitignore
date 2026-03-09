@@ -1,0 +1,47 @@
+# Dependências
+node_modules/
+
+# Dados sensíveis
+.env
+login.json
+cookies.txt
+cookies_urkut.txt
+sessions.db
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+yorkut_backup*.db
+
+# Uploads (opcionalmente commitar)
+uploads/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+Thumbs.db
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Temp files
+_fix_*.js
+tmp/
+optimize-images.js
+check_tz*.js
+temp_*.html
+temp_*.txt
+original*.html
+original*.css
+original*.txt
+build-zip.ps1
+*.psd
+
+# Deploy zip
+yorkut-deploy.zip
