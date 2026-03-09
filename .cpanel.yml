@@ -1,6 +1,8 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/$USER/public_html
-    - /bin/cp -R * $DEPLOYPATH/
+    - export DEPLOYPATH=/home/chaseupc/yorkut.com.br
+    - /bin/cp -R server.js sqlite-compat.js sorte.js .htaccess package.json package-lock.json yorkut.db $DEPLOYPATH/
+    - /bin/cp -R public/* $DEPLOYPATH/public/
+    - /bin/cp -R uploads/* $DEPLOYPATH/uploads/ 2>/dev/null ; true
     - cd $DEPLOYPATH && /usr/local/bin/npm install --production
