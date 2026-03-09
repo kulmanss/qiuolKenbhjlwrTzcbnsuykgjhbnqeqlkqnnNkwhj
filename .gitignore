@@ -13,7 +13,7 @@ sessions.db
 *.db-shm
 *.db-wal
 *.db-journal
-yorkut_backup*.db
+*_backup*.db
 
 # Uploads (opcionalmente commitar)
 uploads/
@@ -44,4 +44,4 @@ build-zip.ps1
 *.psd
 
 # Deploy zip
-yorkut-deploy.zip
+*-deploy.zip
