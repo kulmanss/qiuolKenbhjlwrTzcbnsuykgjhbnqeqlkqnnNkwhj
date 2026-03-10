@@ -67,6 +67,19 @@ class MysqlCompat {
         // TEXT UNIQUE → VARCHAR(255) UNIQUE
         s = s.replace(/\bTEXT\s+UNIQUE\b/gi, 'VARCHAR(255) UNIQUE');
 
+        // TEXT NOT NULL DEFAULT → VARCHAR(255) NOT NULL DEFAULT (MySQL não permite DEFAULT em TEXT)
+        s = s.replace(/\bTEXT\s+NOT\s+NULL\s+DEFAULT\b/gi, 'VARCHAR(255) NOT NULL DEFAULT');
+
+        // TEXT DEFAULT → VARCHAR(255) DEFAULT (MySQL não permite DEFAULT em TEXT)
+        s = s.replace(/\bTEXT\s+DEFAULT\b/gi, 'VARCHAR(255) DEFAULT');
+
+        // Catch-all: TEXT → VARCHAR(255) (para FK/index compatibility; SQLite usa TEXT para tudo)
+        s = s.replace(/\bTEXT\b/gi, 'VARCHAR(255)');
+
+        // Remover FOREIGN KEY constraints (tipos incompatíveis após conversão SQLite→MySQL)
+        // SQLite não aplica FKs por padrão, app já garante integridade
+        s = s.replace(/,\s*FOREIGN\s+KEY\s*\([^)]*\)\s*REFERENCES\s+\w+\s*\([^)]*\)(\s+ON\s+(DELETE|UPDATE)\s+(CASCADE|SET\s+NULL|RESTRICT|NO\s+ACTION))*(\s+ON\s+(DELETE|UPDATE)\s+(CASCADE|SET\s+NULL|RESTRICT|NO\s+ACTION))*/gi, '');
+
         // CREATE INDEX IF NOT EXISTS → CREATE INDEX (MySQL não suporta IF NOT EXISTS para índices)
         s = s.replace(/CREATE\s+INDEX\s+IF\s+NOT\s+EXISTS/gi, 'CREATE INDEX');
 

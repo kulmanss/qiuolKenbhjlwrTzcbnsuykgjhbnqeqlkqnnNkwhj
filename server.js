@@ -583,8 +583,13 @@ await db.exec(`
 // Tabela de itens/sementes (Colheita Feliz)
 // Migrar tabela antiga se existir com schema antigo
 {
-    const tableInfo = await db.prepare("SHOW COLUMNS FROM colheita_items").all();
-    const colNames = tableInfo.map(c => c.Field);
+    let colNames = [];
+    try {
+        const tableInfo = await db.prepare("SHOW COLUMNS FROM colheita_items").all();
+        colNames = tableInfo.map(c => c.Field);
+    } catch (e) {
+        // Tabela ainda não existe — será criada abaixo
+    }
     if (colNames.length > 0 && !colNames.includes('descricao')) {
         // Schema antigo detectado — recriar tabela
         const oldItems = await db.prepare('SELECT * FROM colheita_items').all();
@@ -645,7 +650,8 @@ await db.exec(`
 
 // Migração: adicionar colunas preco_gold/preco_kutcoin se não existirem (migração de moneytype/preco)
 {
-    const cols = (await db.prepare("SHOW COLUMNS FROM colheita_fertilizantes").all()).map(c => c.Field);
+    let cols = [];
+    try { cols = (await db.prepare("SHOW COLUMNS FROM colheita_fertilizantes").all()).map(c => c.Field); } catch(e) {}
     if (!cols.includes('preco_gold')) {
         await db.exec('ALTER TABLE colheita_fertilizantes ADD COLUMN preco_gold INTEGER DEFAULT 0');
         await db.exec('ALTER TABLE colheita_fertilizantes ADD COLUMN preco_kutcoin INTEGER DEFAULT 0');
@@ -895,7 +901,8 @@ await db.exec(`
 
 // Migrate: rebuild tables if dono_id/usuario_id are INTEGER (BigInt precision fix)
 await (async function migrateCommunityTables() {
-    const colInfo = await db.prepare("SHOW COLUMNS FROM comunidades").all();
+    let colInfo = [];
+    try { colInfo = await db.prepare("SHOW COLUMNS FROM comunidades").all(); } catch(e) { return; }
     const donoCol = colInfo.find(c => c.Field === 'dono_id');
     if (donoCol && /^int/i.test(donoCol.Type)) {
         console.log('[MIGRATE] Rebuilding comunidades/comunidade_membros tables (INTEGER→TEXT fix)...');
@@ -1144,7 +1151,7 @@ const tokenCount = await db.prepare('SELECT COUNT(*) as total FROM convites WHER
 if (tokenCount.total === 0) {
     const testToken = crypto.randomBytes(8).toString('hex').toUpperCase();
     await db.prepare(`INSERT INTO convites (token, criado_por, criado_em) VALUES (?, NULL, ${agora()})`).run(testToken);
-    console.log('Novo token de convite gerado (consulte via painel admin).');
+    console.log(`[CONVITE] Token inicial gerado: ${testToken}`);
 }
 
 // Contagem de tokens disponíveis (sem expor valores)
