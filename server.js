@@ -3,7 +3,7 @@ require('dotenv').config();
 process.env.TZ = 'America/Sao_Paulo';
 const express = require('express');
 const session = require('express-session');
-const createDatabase = require('./sqlite-compat');
+const createDatabase = require('./mysql-compat');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const path = require('path');
@@ -53,33 +53,33 @@ if (process.env.NODE_ENV === 'production') {
     app.set('trust proxy', 1);
 }
 
-// ===== Banco de Dados SQLite (via sql.js - WASM puro, sem compilação nativa) =====
+// ===== Banco de Dados MySQL =====
 (async () => {
 
 try {
 
-const db = await createDatabase(path.join(__dirname, 'yorkut.db'));
+const db = await createDatabase();
 console.log('[startup] Banco de dados carregado com sucesso.');
-db.pragma('foreign_keys = ON');
+await db.pragma('foreign_keys = ON');
 
 // ===== Tabela de configuração de timezone =====
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS configuracao (
         chave TEXT PRIMARY KEY,
         valor TEXT NOT NULL
     );
 `);
 // Inserir timezone padrão (Brasília, UTC-3) se não existir
-const tzExiste = db.prepare("SELECT valor FROM configuracao WHERE chave = 'timezone_offset'").get();
+const tzExiste = await db.prepare("SELECT valor FROM configuracao WHERE chave = 'timezone_offset'").get();
 if (!tzExiste) {
-    db.prepare("INSERT INTO configuracao (chave, valor) VALUES ('timezone_offset', '-3 hours')").run();
+    await db.prepare("INSERT INTO configuracao (chave, valor) VALUES ('timezone_offset', '-3 hours')").run();
 }
 
 // Função helper: retorna a hora atual na timezone configurada (SQL)
 let _cachedTzOffset = null;
 function getTzOffset() {
     if (_cachedTzOffset === null) {
-        const row = db.prepare("SELECT valor FROM configuracao WHERE chave = 'timezone_offset'").get();
+        const row = await db.prepare("SELECT valor FROM configuracao WHERE chave = 'timezone_offset'").get();
         _cachedTzOffset = row ? row.valor : '-3 hours';
     }
     return _cachedTzOffset;
@@ -87,8 +87,7 @@ function getTzOffset() {
 function invalidateTzCache() { _cachedTzOffset = null; }
 
 // Helper JS: retorna datetime string ajustada para usar em queries
-function agora() {
-    return `datetime('now','${getTzOffset()}')`;
+function agora() { return 'NOW()'; }')`;
 }
 
 // Helper: extrair @menções do texto e criar notificações
@@ -101,15 +100,15 @@ function processarMencoes(mensagem, remetenteId, tipo, link) {
         const uid = match[2];
         if (uid !== remetenteId && !mencionados.has(uid)) {
             mencionados.add(uid);
-            const user = db.prepare('SELECT id, nome FROM usuarios WHERE id = ?').get(uid);
+            const user = await db.prepare('SELECT id, nome FROM usuarios WHERE id = ?').get(uid);
             if (user) {
-                const remetente = db.prepare('SELECT nome FROM usuarios WHERE id = ?').get(remetenteId);
+                const remetente = await db.prepare('SELECT nome FROM usuarios WHERE id = ?').get(remetenteId);
                 const nomeRemetente = remetente ? remetente.nome : 'Alguém';
                 const titulo = tipo === 'mencao_recado'
                     ? `${nomeRemetente} mencionou você em um recado`
                     : `${nomeRemetente} mencionou você em um depoimento`;
                 const preview = mensagem.replace(/@\[([^\]]+)\]\([^)]+\)/g, '@$1').substring(0, 80);
-                db.prepare(`INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem, link, remetente_id) VALUES (?, ?, ?, ?, ?, ?)`)
+                await db.prepare(`INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem, link, remetente_id) VALUES (?, ?, ?, ?, ?, ?)`)
                     .run(uid, tipo, titulo, preview, link, remetenteId);
             }
         }
@@ -132,7 +131,7 @@ function generateTimestampId() {
 }
 
 // Criar tabelas
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS usuarios (
         id TEXT PRIMARY KEY,
         nome TEXT NOT NULL,
@@ -326,7 +325,7 @@ db.exec(`
 `);
 
 // ===== Tabelas de Denúncias de Comunidades =====
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS denuncias_comunidades (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         denunciante_id TEXT NOT NULL,
@@ -342,7 +341,7 @@ db.exec(`
         FOREIGN KEY (resolvido_por) REFERENCES usuarios(id)
     );
 `);
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS denuncia_comunidade_mensagens (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         denuncia_id INTEGER NOT NULL,
@@ -357,10 +356,10 @@ db.exec(`
 `);
 
 // Adicionar colunas tema_id e sem_tema se não existem (migração)
-try { db.exec('ALTER TABLE usuarios ADD COLUMN tema_id INTEGER DEFAULT NULL'); } catch(e) {}
-try { db.exec('ALTER TABLE usuarios ADD COLUMN sem_tema INTEGER DEFAULT 0'); } catch(e) {}
-try { db.exec('ALTER TABLE usuarios ADD COLUMN recados_vistos_em DATETIME DEFAULT NULL'); } catch(e) {}
-try { db.exec('ALTER TABLE usuarios ADD COLUMN depoimentos_vistos_em DATETIME DEFAULT NULL'); } catch(e) {}
+try { await db.exec('ALTER TABLE usuarios ADD COLUMN tema_id INTEGER DEFAULT NULL'); } catch(e) {}
+try { await db.exec('ALTER TABLE usuarios ADD COLUMN sem_tema INTEGER DEFAULT 0'); } catch(e) {}
+try { await db.exec('ALTER TABLE usuarios ADD COLUMN recados_vistos_em DATETIME DEFAULT NULL'); } catch(e) {}
+try { await db.exec('ALTER TABLE usuarios ADD COLUMN depoimentos_vistos_em DATETIME DEFAULT NULL'); } catch(e) {}
 
 // Migração: colunas de privacidade/configurações
 const privacidadeColunas = [
@@ -385,7 +384,7 @@ const privacidadeColunas = [
     'conta_excluir_em DATETIME DEFAULT NULL'
 ];
 privacidadeColunas.forEach(col => {
-    try { db.exec('ALTER TABLE usuarios ADD COLUMN ' + col); } catch(e) {}
+    try { await db.exec('ALTER TABLE usuarios ADD COLUMN ' + col); } catch(e) {}
 });
 
 // Migração: colunas do perfil completo
@@ -436,33 +435,33 @@ const perfilColunas = [
     'area_atuacao TEXT DEFAULT ""'
 ];
 perfilColunas.forEach(col => {
-    try { db.exec('ALTER TABLE usuarios ADD COLUMN ' + col); } catch(e) {}
+    try { await db.exec('ALTER TABLE usuarios ADD COLUMN ' + col); } catch(e) {}
 });
 
 // Migração: corrigir avatar padrão para usuárias femininas
-db.prepare(`UPDATE usuarios SET foto_perfil = '/img/default-avatar-female.png' WHERE sexo = 'F' AND foto_perfil = '/img/default-avatar.png'`).run();
+await db.prepare(`UPDATE usuarios SET foto_perfil = '/img/default-avatar-female.png' WHERE sexo = 'F' AND foto_perfil = '/img/default-avatar.png'`).run();
 
 // Migração: campo admin
-try { db.exec('ALTER TABLE usuarios ADD COLUMN is_admin INTEGER DEFAULT 0'); } catch(e) {}
+try { await db.exec('ALTER TABLE usuarios ADD COLUMN is_admin INTEGER DEFAULT 0'); } catch(e) {}
 // Tornar primeiro usuário registrado admin (apenas se NENHUM admin existir)
-const existingAdmin = db.prepare('SELECT id FROM usuarios WHERE is_admin = 1 LIMIT 1').get();
+const existingAdmin = await db.prepare('SELECT id FROM usuarios WHERE is_admin = 1 LIMIT 1').get();
 if (!existingAdmin) {
-    const firstUser = db.prepare('SELECT id FROM usuarios ORDER BY criado_em ASC LIMIT 1').get();
+    const firstUser = await db.prepare('SELECT id FROM usuarios ORDER BY criado_em ASC LIMIT 1').get();
     if (firstUser) {
-        db.prepare('UPDATE usuarios SET is_admin = 1 WHERE id = ?').run(firstUser.id);
+        await db.prepare('UPDATE usuarios SET is_admin = 1 WHERE id = ?').run(firstUser.id);
     }
 }
 
 // Migração: campos de banimento
-try { db.exec('ALTER TABLE usuarios ADD COLUMN banido INTEGER DEFAULT 0'); } catch(e) {}
-try { db.exec('ALTER TABLE usuarios ADD COLUMN banido_permanente INTEGER DEFAULT 0'); } catch(e) {}
-try { db.exec('ALTER TABLE usuarios ADD COLUMN banido_ate DATETIME DEFAULT NULL'); } catch(e) {}
-try { db.exec('ALTER TABLE usuarios ADD COLUMN banido_motivo TEXT DEFAULT NULL'); } catch(e) {}
-try { db.exec('ALTER TABLE usuarios ADD COLUMN banido_por TEXT DEFAULT NULL'); } catch(e) {}
-try { db.exec('ALTER TABLE usuarios ADD COLUMN banido_em DATETIME DEFAULT NULL'); } catch(e) {}
+try { await db.exec('ALTER TABLE usuarios ADD COLUMN banido INTEGER DEFAULT 0'); } catch(e) {}
+try { await db.exec('ALTER TABLE usuarios ADD COLUMN banido_permanente INTEGER DEFAULT 0'); } catch(e) {}
+try { await db.exec('ALTER TABLE usuarios ADD COLUMN banido_ate DATETIME DEFAULT NULL'); } catch(e) {}
+try { await db.exec('ALTER TABLE usuarios ADD COLUMN banido_motivo TEXT DEFAULT NULL'); } catch(e) {}
+try { await db.exec('ALTER TABLE usuarios ADD COLUMN banido_por TEXT DEFAULT NULL'); } catch(e) {}
+try { await db.exec('ALTER TABLE usuarios ADD COLUMN banido_em DATETIME DEFAULT NULL'); } catch(e) {}
 
 // Tabela de bloqueios entre usuários
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS bloqueios (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         bloqueador_id TEXT NOT NULL,
@@ -475,7 +474,7 @@ db.exec(`
 `);
 
 // Tabela de notificações
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS notificacoes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         usuario_id TEXT NOT NULL,
@@ -492,14 +491,14 @@ db.exec(`
 
 // Migração: adicionar coluna remetente_id se não existir
 try {
-    db.prepare("SELECT remetente_id FROM notificacoes LIMIT 1").get();
+    await db.prepare("SELECT remetente_id FROM notificacoes LIMIT 1").get();
 } catch(e) {
-    db.exec('ALTER TABLE notificacoes ADD COLUMN remetente_id TEXT DEFAULT NULL');
+    await db.exec('ALTER TABLE notificacoes ADD COLUMN remetente_id TEXT DEFAULT NULL');
     console.log('Migração: coluna remetente_id adicionada a notificacoes');
 }
 
 // Tabela de anúncios do admin
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS anuncios (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         titulo TEXT NOT NULL,
@@ -512,10 +511,10 @@ db.exec(`
 `);
 
 // Adicionar coluna foto à tabela anuncios (para bancos existentes)
-try { db.exec("ALTER TABLE anuncios ADD COLUMN foto TEXT DEFAULT NULL"); } catch(e) {}
+try { await db.exec("ALTER TABLE anuncios ADD COLUMN foto TEXT DEFAULT NULL"); } catch(e) {}
 
 // Tabela de sugestões
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS sugestoes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         usuario_id TEXT NOT NULL,
@@ -532,7 +531,7 @@ db.exec(`
 `);
 
 // Tabela de bugs
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS bugs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         usuario_id TEXT NOT NULL,
@@ -549,7 +548,7 @@ db.exec(`
 `);
 
 // Tabela de fazendas (Colheita Feliz)
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS colheita_farms (
         user_id TEXT PRIMARY KEY REFERENCES usuarios(id),
         farm_data TEXT DEFAULT '{}',
@@ -563,13 +562,13 @@ db.exec(`
 `);
 
 // Migração: adicionar coluna level se não existir
-try { db.exec('ALTER TABLE colheita_farms ADD COLUMN level INTEGER DEFAULT 1'); } catch(e) { /* já existe */ }
+try { await db.exec('ALTER TABLE colheita_farms ADD COLUMN level INTEGER DEFAULT 1'); } catch(e) { /* já existe */ }
 
 // Migração: adicionar coluna unlocked_tiles se não existir
-try { db.exec("ALTER TABLE colheita_farms ADD COLUMN unlocked_tiles TEXT DEFAULT '[0]'"); } catch(e) { /* já existe */ }
+try { await db.exec("ALTER TABLE colheita_farms ADD COLUMN unlocked_tiles TEXT DEFAULT '[0]'"); } catch(e) { /* já existe */ }
 
 // Tabela de logs/visitas da fazenda
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS colheita_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         farm_owner_id TEXT NOT NULL,
@@ -585,22 +584,22 @@ db.exec(`
 // Tabela de itens/sementes (Colheita Feliz)
 // Migrar tabela antiga se existir com schema antigo
 {
-    const tableInfo = db.prepare("PRAGMA table_info(colheita_items)").all();
-    const colNames = tableInfo.map(c => c.name);
+    const tableInfo = await db.prepare("SHOW COLUMNS FROM colheita_items").all();
+    const colNames = tableInfo.map(c => c.Field);
     if (colNames.length > 0 && !colNames.includes('descricao')) {
         // Schema antigo detectado — recriar tabela
-        const oldItems = db.prepare('SELECT * FROM colheita_items').all();
-        db.exec('DROP TABLE colheita_items');
+        const oldItems = await db.prepare('SELECT * FROM colheita_items').all();
+        await db.exec('DROP TABLE colheita_items');
         console.log('[Colheita] Tabela colheita_items recriada com novo schema.');
     }
     // Adicionar coluna temporadas se não existir
     if (colNames.length > 0 && !colNames.includes('temporadas')) {
-        db.exec("ALTER TABLE colheita_items ADD COLUMN temporadas INTEGER DEFAULT 1");
+        await db.exec("ALTER TABLE colheita_items ADD COLUMN temporadas INTEGER DEFAULT 1");
         console.log('[Colheita] Coluna temporadas adicionada à tabela colheita_items.');
     }
 }
 
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS colheita_items (
         id INTEGER PRIMARY KEY,
         nome TEXT NOT NULL,
@@ -623,15 +622,15 @@ db.exec(`
 
 // Inserir item 1001 (Laranja) se não existir
 {
-    const existing = db.prepare('SELECT id FROM colheita_items WHERE id = 1001').get();
+    const existing = await db.prepare('SELECT id FROM colheita_items WHERE id = 1001').get();
     if (!existing) {
-        db.prepare(`INSERT INTO colheita_items (id, nome, descricao, moeda, preco_compra, preco_venda, rendimento, frutos_roubo, estrelas_colheita, tempo_fase2, tempo_fase3, tempo_fase4, tempo_fase5, nivel_minimo)
+        await db.prepare(`INSERT INTO colheita_items (id, nome, descricao, moeda, preco_compra, preco_venda, rendimento, frutos_roubo, estrelas_colheita, tempo_fase2, tempo_fase3, tempo_fase4, tempo_fase5, nivel_minimo)
             VALUES (1001, 'Laranja', 'Uma deliciosa laranja suculenta.', 'gold', 100, 15, 50, 5, 1, 60, 60, 60, 300, 1)`).run();
     }
 }
 
 // Tabela de fertilizantes (Colheita Feliz)
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS colheita_fertilizantes (
         id INTEGER PRIMARY KEY,
         nome TEXT NOT NULL,
@@ -647,14 +646,14 @@ db.exec(`
 
 // Migração: adicionar colunas preco_gold/preco_kutcoin se não existirem (migração de moneytype/preco)
 {
-    const cols = db.prepare("PRAGMA table_info(colheita_fertilizantes)").all().map(c => c.name);
+    const cols = (await db.prepare("SHOW COLUMNS FROM colheita_fertilizantes").all()).map(c => c.Field);
     if (!cols.includes('preco_gold')) {
-        db.exec('ALTER TABLE colheita_fertilizantes ADD COLUMN preco_gold INTEGER DEFAULT 0');
-        db.exec('ALTER TABLE colheita_fertilizantes ADD COLUMN preco_kutcoin INTEGER DEFAULT 0');
+        await db.exec('ALTER TABLE colheita_fertilizantes ADD COLUMN preco_gold INTEGER DEFAULT 0');
+        await db.exec('ALTER TABLE colheita_fertilizantes ADD COLUMN preco_kutcoin INTEGER DEFAULT 0');
         // Migrar dados antigos de moneytype/preco
         if (cols.includes('moneytype') && cols.includes('preco')) {
-            db.exec('UPDATE colheita_fertilizantes SET preco_gold = preco WHERE moneytype = 1');
-            db.exec('UPDATE colheita_fertilizantes SET preco_kutcoin = preco WHERE moneytype = 2');
+            await db.exec('UPDATE colheita_fertilizantes SET preco_gold = preco WHERE moneytype = 1');
+            await db.exec('UPDATE colheita_fertilizantes SET preco_kutcoin = preco WHERE moneytype = 2');
         }
         console.log('[Colheita] Migração: preco_gold/preco_kutcoin adicionados.');
     }
@@ -662,18 +661,18 @@ db.exec(`
 
 // Inserir fertilizantes padrão se tabela estiver vazia
 {
-    const count = db.prepare('SELECT COUNT(*) as cnt FROM colheita_fertilizantes').get().cnt;
+    const count = (await db.prepare('SELECT COUNT(*) as cnt FROM colheita_fertilizantes').get()).cnt;
     if (count === 0) {
-        const insertFert = db.prepare('INSERT INTO colheita_fertilizantes (id, nome, descricao, icone, preco_gold, preco_kutcoin, tempo_reducao, nivel_minimo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-        insertFert.run(1, 'Fertilizante Básico', 'Reduz 1 minuto do tempo de crescimento.', 'fertilizante1.png', 50, 0, 60, 1);
-        insertFert.run(2, 'Fertilizante Médio', 'Reduz 5 minutos do tempo de crescimento.', 'fertilizante2.png', 200, 2, 300, 5);
-        insertFert.run(3, 'Fertilizante Forte', 'Reduz 15 minutos do tempo de crescimento.', 'fertilizante3.png', 500, 5, 900, 10);
+        const insertFert = await db.prepare('INSERT INTO colheita_fertilizantes (id, nome, descricao, icone, preco_gold, preco_kutcoin, tempo_reducao, nivel_minimo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+        await insertFert.run(1, 'Fertilizante Básico', 'Reduz 1 minuto do tempo de crescimento.', 'fertilizante1.png', 50, 0, 60, 1);
+        await insertFert.run(2, 'Fertilizante Médio', 'Reduz 5 minutos do tempo de crescimento.', 'fertilizante2.png', 200, 2, 300, 5);
+        await insertFert.run(3, 'Fertilizante Forte', 'Reduz 15 minutos do tempo de crescimento.', 'fertilizante3.png', 500, 5, 900, 10);
         console.log('[Colheita] Fertilizantes padrão inseridos (3 itens).');
     }
 }
 
 // Tabela de requisitos de tiles (Colheita Feliz)
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS colheita_tile_reqs (
         tile_id INTEGER PRIMARY KEY,
         nivel_minimo INTEGER DEFAULT 1,
@@ -683,7 +682,7 @@ db.exec(`
 
 // Inserir requisitos dos tiles se tabela estiver vazia
 {
-    const count = db.prepare('SELECT COUNT(*) as cnt FROM colheita_tile_reqs').get().cnt;
+    const count = (await db.prepare('SELECT COUNT(*) as cnt FROM colheita_tile_reqs').get()).cnt;
     if (count === 0) {
         const tileConfigs = [
             [0, 1, 0], [1, 3, 1000], [2, 5, 10000], [3, 10, 50000],
@@ -693,9 +692,9 @@ db.exec(`
             [16, 42, 6000000], [17, 45, 7500000], [18, 48, 9000000], [19, 50, 11000000],
             [20, 53, 13000000], [21, 56, 16000000], [22, 60, 20000000], [23, 65, 25000000]
         ];
-        const insertTile = db.prepare('INSERT INTO colheita_tile_reqs (tile_id, nivel_minimo, preco) VALUES (?, ?, ?)');
+        const insertTile = await db.prepare('INSERT INTO colheita_tile_reqs (tile_id, nivel_minimo, preco) VALUES (?, ?, ?)');
         for (const [tid, lvl, price] of tileConfigs) {
-            insertTile.run(tid, lvl, price);
+            await insertTile.run(tid, lvl, price);
         }
         console.log('[Colheita] Requisitos de tiles inseridos (24 tiles).');
     }
@@ -703,7 +702,7 @@ db.exec(`
 
 // ===== COMUNIDADES =====
 // dono_id e usuario_id são TEXT para suportar IDs longos (18+ dígitos)
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS comunidades (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         nome TEXT NOT NULL,
@@ -718,7 +717,7 @@ db.exec(`
     )
 `);
 
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS comunidade_membros (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         comunidade_id INTEGER NOT NULL,
@@ -729,7 +728,7 @@ db.exec(`
     )
 `);
 
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS comunidade_bans (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         comunidade_id INTEGER NOT NULL,
@@ -741,7 +740,7 @@ db.exec(`
     )
 `);
 
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS comunidade_pendentes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         comunidade_id INTEGER NOT NULL,
@@ -751,10 +750,10 @@ db.exec(`
         UNIQUE(comunidade_id, usuario_id)
     )
 `);
-try { db.exec('ALTER TABLE comunidade_pendentes ADD COLUMN mensagem TEXT DEFAULT ""'); } catch(e) {}
+try { await db.exec('ALTER TABLE comunidade_pendentes ADD COLUMN mensagem TEXT DEFAULT ""'); } catch(e) {}
 
 // Tabelas do Fórum
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS forum_topicos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         comunidade_id INTEGER NOT NULL,
@@ -767,7 +766,7 @@ db.exec(`
     )
 `);
 
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS forum_respostas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         topico_id INTEGER NOT NULL,
@@ -778,7 +777,7 @@ db.exec(`
 `);
 
 // Tabelas de Enquetes
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS enquetes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         comunidade_id INTEGER NOT NULL,
@@ -791,7 +790,7 @@ db.exec(`
     )
 `);
 
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS enquete_opcoes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         enquete_id INTEGER NOT NULL,
@@ -801,7 +800,7 @@ db.exec(`
     )
 `);
 
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS enquete_votos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         enquete_id INTEGER NOT NULL,
@@ -815,7 +814,7 @@ db.exec(`
 `);
 
 // Sorteios
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS sorteios (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         comunidade_id INTEGER NOT NULL,
@@ -831,7 +830,7 @@ db.exec(`
     )
 `);
 
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS sorteio_participantes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         sorteio_id INTEGER NOT NULL,
@@ -842,7 +841,7 @@ db.exec(`
     )
 `);
 
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS sorteio_vencedores (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         sorteio_id INTEGER NOT NULL,
@@ -851,7 +850,7 @@ db.exec(`
     )
 `);
 
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS fas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         fa_id TEXT NOT NULL,
@@ -863,7 +862,7 @@ db.exec(`
     )
 `);
 
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS avaliacoes_perfil (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         avaliador_id TEXT NOT NULL,
@@ -878,12 +877,12 @@ db.exec(`
 `);
 
 // Migrate: add idioma and local_text columns if missing
-try { db.exec("ALTER TABLE comunidades ADD COLUMN idioma TEXT DEFAULT 'Português'"); } catch(e) {}
-try { db.exec("ALTER TABLE comunidades ADD COLUMN local_text TEXT DEFAULT 'Brasil'"); } catch(e) {}
-try { db.exec("ALTER TABLE comunidades ADD COLUMN excluir_em DATETIME DEFAULT NULL"); } catch(e) {}
+try { await db.exec("ALTER TABLE comunidades ADD COLUMN idioma TEXT DEFAULT 'Português'"); } catch(e) {}
+try { await db.exec("ALTER TABLE comunidades ADD COLUMN local_text TEXT DEFAULT 'Brasil'"); } catch(e) {}
+try { await db.exec("ALTER TABLE comunidades ADD COLUMN excluir_em DATETIME DEFAULT NULL"); } catch(e) {}
 
 // ===== Tabela de tokens de recuperação de senha =====
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS password_resets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         usuario_id TEXT NOT NULL,
@@ -896,14 +895,14 @@ db.exec(`
 `);
 
 // Migrate: rebuild tables if dono_id/usuario_id are INTEGER (BigInt precision fix)
-(function migrateCommunityTables() {
-    const colInfo = db.prepare("PRAGMA table_info(comunidades)").all();
-    const donoCol = colInfo.find(c => c.name === 'dono_id');
-    if (donoCol && donoCol.type === 'INTEGER') {
+await (async function migrateCommunityTables() {
+    const colInfo = await db.prepare("SHOW COLUMNS FROM comunidades").all();
+    const donoCol = colInfo.find(c => c.Field === 'dono_id');
+    if (donoCol && /^int/i.test(donoCol.Type)) {
         console.log('[MIGRATE] Rebuilding comunidades/comunidade_membros tables (INTEGER→TEXT fix)...');
-        db.exec('DROP TABLE IF EXISTS comunidade_membros');
-        db.exec('DROP TABLE IF EXISTS comunidades');
-        db.exec(`
+        await db.exec('DROP TABLE IF EXISTS comunidade_membros');
+        await db.exec('DROP TABLE IF EXISTS comunidades');
+        await db.exec(`
             CREATE TABLE comunidades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nome TEXT NOT NULL,
@@ -917,7 +916,7 @@ db.exec(`
                 criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         `);
-        db.exec(`
+        await db.exec(`
             CREATE TABLE comunidade_membros (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 comunidade_id INTEGER NOT NULL,
@@ -932,7 +931,7 @@ db.exec(`
 })();
 
 // Tabela de níveis (Colheita Feliz) — armazenada no banco de dados
-db.exec(`
+await db.exec(`
     CREATE TABLE IF NOT EXISTS colheita_levels (
         level INTEGER PRIMARY KEY,
         exp_needed INTEGER NOT NULL
@@ -972,12 +971,12 @@ const indexes = [
     'CREATE INDEX IF NOT EXISTS idx_convites_criado ON convites(criado_por)',
 ];
 for (const idx of indexes) {
-    try { db.exec(idx); } catch(e) { /* tabela pode não existir */ }
+    try { await db.exec(idx); } catch(e) { /* tabela pode não existir */ }
 }
 
 // Popular tabela de níveis se estiver vazia
-(function seedLevelsTable() {
-    const count = db.prepare('SELECT COUNT(*) as c FROM colheita_levels').get().c;
+await (async function seedLevelsTable() {
+    const count = (await db.prepare('SELECT COUNT(*) as c FROM colheita_levels').get()).c;
     if (count === 0) {
         const defaultLevels = {
             2:422, 3:863, 4:1314, 5:1995, 6:2625, 7:3424, 8:4202, 9:5156, 10:6090,
@@ -990,27 +989,27 @@ for (const idx of indexes) {
             71:28523004, 72:32901252, 73:37717476, 74:43457028, 75:49770426, 76:57249198, 77:65475906, 78:75171606, 79:89391966, 80:108802350,
             81:129137038, 82:150396030, 83:174427934, 84:203081358
         };
-        const insert = db.prepare('INSERT INTO colheita_levels (level, exp_needed) VALUES (?, ?)');
-        const tx = db.transaction(() => {
+        const insert = await db.prepare('INSERT INTO colheita_levels (level, exp_needed) VALUES (?, ?)');
+        const tx = db.transaction(async () => {
             for (const [lvl, xp] of Object.entries(defaultLevels)) {
-                insert.run(Number(lvl), xp);
+                await insert.run(Number(lvl), xp);
             }
         });
-        tx();
+        await tx();
         console.log('[Colheita] Tabela colheita_levels populada com dados padrão.');
     }
 })();
 
 // Construir EXP_TABLE a partir do banco
-function buildExpTable() {
-    const rows = db.prepare('SELECT level, exp_needed FROM colheita_levels ORDER BY level').all();
+async function buildExpTable() {
+    const rows = await db.prepare('SELECT level, exp_needed FROM colheita_levels ORDER BY level').all();
     const table = {};
     for (const row of rows) {
         table[row.level] = row.exp_needed;
     }
     return table;
 }
-let EXP_TABLE = buildExpTable();
+let EXP_TABLE = await buildExpTable();
 let MAX_LEVEL = Math.max(...Object.keys(EXP_TABLE).map(Number));
 
 function getXPNeeded(level) {
@@ -1019,21 +1018,21 @@ function getXPNeeded(level) {
 }
 
 // Adiciona XP a um jogador no servidor e processa level-ups
-function addXPToFarm(userId, amount) {
-    const farm = ensureColheitaFarm(userId);
+async function addXPToFarm(userId, amount) {
+    const farm = await ensureColheitaFarm(userId);
     let level = farm.level || 1;
     let xp = (farm.xp || 0) + amount;
     while (level < MAX_LEVEL) {
         const needed = getXPNeeded(level);
         if (xp >= needed) { xp -= needed; level++; } else break;
     }
-    db.prepare('UPDATE colheita_farms SET level = ?, xp = ? WHERE user_id = ?').run(level, xp, userId);
+    await db.prepare('UPDATE colheita_farms SET level = ?, xp = ? WHERE user_id = ?').run(level, xp, userId);
     return { level, xp };
 }
 
 // Configuração de sementes (Colheita Feliz) — gerado a partir da tabela colheita_items
-function buildSeedsConfig() {
-    const items = db.prepare('SELECT * FROM colheita_items WHERE ativo = 1').all();
+async function buildSeedsConfig() {
+    const items = await db.prepare('SELECT * FROM colheita_items WHERE ativo = 1').all();
     const config = {};
     for (const item of items) {
         config[String(item.id)] = {
@@ -1061,11 +1060,11 @@ function buildSeedsConfig() {
     }
     return config;
 }
-let SEEDS_CONFIG = buildSeedsConfig();
+let SEEDS_CONFIG = await buildSeedsConfig();
 
 // Configuração de fertilizantes (Colheita Feliz) — gerado a partir da tabela colheita_fertilizantes
-function buildFertilizersConfig() {
-    const items = db.prepare('SELECT * FROM colheita_fertilizantes WHERE ativo = 1').all();
+async function buildFertilizersConfig() {
+    const items = await db.prepare('SELECT * FROM colheita_fertilizantes WHERE ativo = 1').all();
     const config = {};
     for (const item of items) {
         config[String(item.id)] = {
@@ -1080,7 +1079,7 @@ function buildFertilizersConfig() {
     }
     return config;
 }
-let FERTILIZERS_CONFIG = buildFertilizersConfig();
+let FERTILIZERS_CONFIG = await buildFertilizersConfig();
 
 // Migração: converter chaves antigas (e.g. "laranja", "eijo") para IDs numéricos
 {
@@ -1088,7 +1087,7 @@ let FERTILIZERS_CONFIG = buildFertilizersConfig();
         'laranja': '1001',
         'eijo': '1001'
     };
-    const farms = db.prepare('SELECT user_id, farm_data, inventory FROM colheita_farms').all();
+    const farms = await db.prepare('SELECT user_id, farm_data, inventory FROM colheita_farms').all();
     let migrated = 0;
     for (const farm of farms) {
         let changed = false;
@@ -1118,7 +1117,7 @@ let FERTILIZERS_CONFIG = buildFertilizersConfig();
             }
         }
         if (changed) {
-            db.prepare('UPDATE colheita_farms SET farm_data = ?, inventory = ? WHERE user_id = ?').run(
+            await db.prepare('UPDATE colheita_farms SET farm_data = ?, inventory = ? WHERE user_id = ?').run(
                 JSON.stringify(fd), JSON.stringify(inv), farm.user_id);
             migrated++;
         }
@@ -1142,15 +1141,15 @@ const TEMAS = {
 };
 
 // ===== Gerar token de teste se não existir nenhum =====
-const tokenCount = db.prepare('SELECT COUNT(*) as total FROM convites WHERE usado = 0').get();
+const tokenCount = await db.prepare('SELECT COUNT(*) as total FROM convites WHERE usado = 0').get();
 if (tokenCount.total === 0) {
     const testToken = crypto.randomBytes(8).toString('hex').toUpperCase();
-    db.prepare(`INSERT INTO convites (token, criado_por, criado_em) VALUES (?, NULL, ${agora()})`).run(testToken);
+    await db.prepare(`INSERT INTO convites (token, criado_por, criado_em) VALUES (?, NULL, ${agora()})`).run(testToken);
     console.log('Novo token de convite gerado (consulte via painel admin).');
 }
 
 // Contagem de tokens disponíveis (sem expor valores)
-const tokensDisponiveis = db.prepare('SELECT COUNT(*) as total FROM convites WHERE usado = 0').get();
+const tokensDisponiveis = await db.prepare('SELECT COUNT(*) as total FROM convites WHERE usado = 0').get();
 if (tokensDisponiveis.total > 0) {
     console.log(`Tokens de convite disponíveis: ${tokensDisponiveis.total}`);
 }
@@ -1161,7 +1160,7 @@ if (tokensDisponiveis.total > 0) {
 app.use(compression({
     level: 6,         // nível de compressão (1-9, 6 é bom equilíbrio velocidade/tamanho)
     threshold: 1024,  // só comprimir respostas > 1KB
-    filter: (req, res) => {
+    filter: async (req, res) => {
         // Não comprimir imagens (já são comprimidas)
         if (req.path.match(/\.(jpg|jpeg|png|gif|webp|ico|woff2?)$/i)) return false;
         return compression.filter(req, res);
@@ -1177,7 +1176,7 @@ app.use(helmet({
 app.disable('x-powered-by');
 
 // Impedir que bots/crawlers indexem páginas privadas
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
     if (req.path !== '/' && req.path !== '/index.php' && req.path !== '/registro.php') {
         res.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
     }
@@ -1186,7 +1185,7 @@ app.use((req, res, next) => {
 
 // Bloquear user-agents de bots/scrapers conhecidos
 const blockedAgents = /curl|wget|python-requests|scrapy|httpclient|java\/|libwww|bot(?!.*google)|spider|crawl|phantom|headless|selenium|puppeteer/i;
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
     const ua = req.headers['user-agent'] || '';
     // Permitir requests sem user-agent (pode ser healthcheck do servidor)
     if (ua && blockedAgents.test(ua)) {
@@ -1196,7 +1195,7 @@ app.use((req, res, next) => {
 });
 
 // Cache-Control: impedir que proxies/CDN cacheem dados sensíveis das APIs
-app.use('/api/', (req, res, next) => {
+app.use('/api/', async (req, res, next) => {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     res.set('Pragma', 'no-cache');
     next();
@@ -1292,11 +1291,11 @@ app.use('/styles', express.static(path.join(__dirname, 'public', 'styles'), cach
 app.use('/themes', express.static(path.join(__dirname, 'public', 'themes'), cacheImagens));
 app.use('/uploads', express.static(uploadsDir, cacheImagens));
 app.use('/imagens_colheita', express.static(path.join(__dirname, 'public', 'imagens_colheita'), cacheImagens));
-app.get('/favicon.ico', (req, res) => {
+app.get('/favicon.ico', async (req, res) => {
   res.set('Cache-Control', 'public, max-age=2592000, immutable'); // 30 dias
   res.sendFile(path.join(__dirname, 'public', 'favicon.ico'));
 });
-app.get('/robots.txt', (req, res) => {
+app.get('/robots.txt', async (req, res) => {
   res.set('Cache-Control', 'public, max-age=86400'); // 1 dia
   res.sendFile(path.join(__dirname, 'public', 'robots.txt'));
 });
@@ -1314,7 +1313,7 @@ function checkBanStatus(user) {
             return { banned: true, permanent: false, banido_ate: user.banido_ate, motivo: user.banido_motivo, banido_em: user.banido_em };
         } else {
             // Ban expirou, desbanir automaticamente
-            db.prepare('UPDATE usuarios SET banido = 0, banido_permanente = 0, banido_ate = NULL, banido_motivo = NULL, banido_por = NULL, banido_em = NULL WHERE id = ?').run(user.id);
+            await db.prepare('UPDATE usuarios SET banido = 0, banido_permanente = 0, banido_ate = NULL, banido_motivo = NULL, banido_por = NULL, banido_em = NULL WHERE id = ?').run(user.id);
             return null;
         }
     }
@@ -1322,8 +1321,8 @@ function checkBanStatus(user) {
 }
 
 // ===== Helper: verificar bloqueio entre dois usuários =====
-function isBlocked(userId1, userId2) {
-    const block = db.prepare(
+async function isBlocked(userId1, userId2) {
+    const block = await db.prepare(
         'SELECT id FROM bloqueios WHERE (bloqueador_id = ? AND bloqueado_id = ?) OR (bloqueador_id = ? AND bloqueado_id = ?)'
     ).get(userId1, userId2, userId2, userId1);
     return !!block;
@@ -1341,7 +1340,7 @@ function blockedIdsSubquery(userId) {
 function requireLogin(req, res, next) {
     if (req.session && req.session.userId) {
         // Verificar banimento
-        const user = db.prepare('SELECT id, banido, banido_permanente, banido_ate, banido_motivo, banido_em FROM usuarios WHERE id = ?').get(req.session.userId);
+        const user = await db.prepare('SELECT id, banido, banido_permanente, banido_ate, banido_motivo, banido_em FROM usuarios WHERE id = ?').get(req.session.userId);
         const banStatus = checkBanStatus(user);
         if (banStatus) {
             req.session.destroy();
@@ -1361,7 +1360,7 @@ function requireLogin(req, res, next) {
 
 function getUserFromSession(req) {
     if (!req.session || !req.session.userId) return null;
-    return db.prepare('SELECT * FROM usuarios WHERE id = ?').get(req.session.userId);
+    return await db.prepare('SELECT * FROM usuarios WHERE id = ?').get(req.session.userId);
 }
 
 // ===== ROTAS DE PÁGINAS =====
@@ -1383,17 +1382,17 @@ app.get('/', handleLogin);
 app.get('/index.php', handleLogin);
 
 // Registro
-app.get('/registro.php', (req, res) => {
+app.get('/registro.php', async (req, res) => {
     sendPhp(res, 'registro.php');
 });
 
 // Home (logado) - redireciona para perfil
-app.get('/home.php', requireLogin, (req, res) => {
+app.get('/home.php', requireLogin, async (req, res) => {
     res.redirect('/profile.php');
 });
 
 // Perfil (página principal após login)
-app.get('/profile.php', requireLogin, (req, res) => {
+app.get('/profile.php', requireLogin, async (req, res) => {
     sendPhp(res, 'profile.php');
 });
 
@@ -1410,39 +1409,39 @@ const authenticatedPages = [
     'comunidades_staff.php', 'sorteio.php'
 ];
 authenticatedPages.forEach(page => {
-    app.get('/' + page, requireLogin, (req, res) => {
+    app.get('/' + page, requireLogin, async (req, res) => {
         sendPhp(res, page);
     });
 });
 
 // Redirecionar mensagens.php para mensagens_particular.php (página unificada)
-app.get('/mensagens.php', requireLogin, (req, res) => {
+app.get('/mensagens.php', requireLogin, async (req, res) => {
     const query = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
     res.redirect('/mensagens_particular.php' + query);
 });
 
 // ===== Temas - GET e POST =====
-app.get('/temas.php', requireLogin, (req, res) => {
+app.get('/temas.php', requireLogin, async (req, res) => {
     sendPhp(res, 'temas.php');
 });
 
-app.post('/temas.php', requireLogin, (req, res) => {
+app.post('/temas.php', requireLogin, async (req, res) => {
     const userId = req.session.userId;
     const { theme_id, aplicar_tema, sem_tema_toggle, remover_tema } = req.body;
 
     if (sem_tema_toggle !== undefined) {
         // Toggle "navegar sem temas"
-        const user = db.prepare('SELECT sem_tema FROM usuarios WHERE id = ?').get(userId);
+        const user = await db.prepare('SELECT sem_tema FROM usuarios WHERE id = ?').get(userId);
         const novoValor = user.sem_tema ? 0 : 1;
-        db.prepare('UPDATE usuarios SET sem_tema = ? WHERE id = ?').run(novoValor, userId);
+        await db.prepare('UPDATE usuarios SET sem_tema = ? WHERE id = ?').run(novoValor, userId);
     } else if (remover_tema !== undefined) {
         // Remover tema atual
-        db.prepare('UPDATE usuarios SET tema_id = NULL WHERE id = ?').run(userId);
+        await db.prepare('UPDATE usuarios SET tema_id = NULL WHERE id = ?').run(userId);
     } else if (aplicar_tema !== undefined && theme_id) {
         // Aplicar tema
         const tid = parseInt(theme_id);
         if (TEMAS[tid]) {
-            db.prepare('UPDATE usuarios SET tema_id = ? WHERE id = ?').run(tid, userId);
+            await db.prepare('UPDATE usuarios SET tema_id = ? WHERE id = ?').run(tid, userId);
         }
     }
 
@@ -1450,8 +1449,8 @@ app.post('/temas.php', requireLogin, (req, res) => {
 });
 
 // API: Dados do tema atual do usuário
-app.get('/api/tema', requireLogin, (req, res) => {
-    const user = db.prepare('SELECT tema_id, sem_tema FROM usuarios WHERE id = ?').get(req.session.userId);
+app.get('/api/tema', requireLogin, async (req, res) => {
+    const user = await db.prepare('SELECT tema_id, sem_tema FROM usuarios WHERE id = ?').get(req.session.userId);
     const temaAtual = user.tema_id ? TEMAS[user.tema_id] : null;
     res.json({
         tema_id: user.tema_id,
@@ -1462,15 +1461,15 @@ app.get('/api/tema', requireLogin, (req, res) => {
 });
 
 // Página de banimento
-app.get('/banido.php', (req, res) => {
+app.get('/banido.php', async (req, res) => {
     sendPhp(res, 'banido.php');
 });
 
 // API: Info de banimento (para a página de banido)
-app.get('/api/ban-info', (req, res) => {
+app.get('/api/ban-info', async (req, res) => {
     const uid = req.session.bannedUserId || req.session.userId;
     if (!uid) return res.json({ success: false });
-    const user = db.prepare('SELECT id, nome, banido, banido_permanente, banido_ate, banido_motivo, banido_em FROM usuarios WHERE id = ?').get(uid);
+    const user = await db.prepare('SELECT id, nome, banido, banido_permanente, banido_ate, banido_motivo, banido_em FROM usuarios WHERE id = ?').get(uid);
     if (!user) return res.json({ success: false });
     const banStatus = checkBanStatus(user);
     if (!banStatus) return res.json({ success: false, message: 'Você não está banido.' });
@@ -1480,13 +1479,13 @@ app.get('/api/ban-info', (req, res) => {
 // ===== Páginas públicas (standalone, sem login) =====
 const publicPages = ['termos.php', 'privacidade.php', 'contato.php'];
 publicPages.forEach(page => {
-    app.get('/' + page, (req, res) => {
+    app.get('/' + page, async (req, res) => {
         sendPhp(res, page);
     });
 });
 
 // Página de recuperação de conta
-app.get('/lost_account.php', (req, res) => {
+app.get('/lost_account.php', async (req, res) => {
     sendPhp(res, 'lost_account.php');
 });
 
@@ -1498,19 +1497,19 @@ app.post('/api/recuperar-conta', emailLimiter, async (req, res) => {
             return res.json({ success: false, message: 'Informe o seu e-mail!' });
         }
 
-        const user = db.prepare('SELECT id, nome, email FROM usuarios WHERE email = ?').get(email.trim().toLowerCase());
+        const user = await db.prepare('SELECT id, nome, email FROM usuarios WHERE email = ?').get(email.trim().toLowerCase());
         if (!user) {
             return res.json({ success: false, message: 'E-mail não encontrado no sistema!' });
         }
 
         // Invalidar tokens anteriores deste usuário
-        db.prepare('UPDATE password_resets SET usado = 1 WHERE usuario_id = ? AND usado = 0').run(user.id);
+        await db.prepare('UPDATE password_resets SET usado = 1 WHERE usuario_id = ? AND usado = 0').run(user.id);
 
         // Gerar token seguro (expira em 1 hora)
         const token = crypto.randomBytes(32).toString('hex');
         const expiraEm = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hora
 
-        db.prepare('INSERT INTO password_resets (usuario_id, token, expira_em) VALUES (?, ?, ?)').run(user.id, token, expiraEm);
+        await db.prepare('INSERT INTO password_resets (usuario_id, token, expira_em) VALUES (?, ?, ?)').run(user.id, token, expiraEm);
 
         // Montar link de redefinição
         const host = req.headers.host || 'localhost:3000';
@@ -1549,16 +1548,16 @@ app.post('/api/recuperar-conta', emailLimiter, async (req, res) => {
 });
 
 // Página de redefinição de senha (com token)
-app.get('/reset_senha.php', (req, res) => {
+app.get('/reset_senha.php', async (req, res) => {
     sendPhp(res, 'reset_senha.php');
 });
 
 // API: Validar token de recuperação
-app.get('/api/validar-token-reset', (req, res) => {
+app.get('/api/validar-token-reset', async (req, res) => {
     const { token } = req.query;
     if (!token) return res.json({ success: false, message: 'Token não informado.' });
 
-    const reset = db.prepare('SELECT pr.*, u.nome, u.email FROM password_resets pr JOIN usuarios u ON u.id = pr.usuario_id WHERE pr.token = ? AND pr.usado = 0').get(token);
+    const reset = await db.prepare('SELECT pr.*, u.nome, u.email FROM password_resets pr JOIN usuarios u ON u.id = pr.usuario_id WHERE pr.token = ? AND pr.usado = 0').get(token);
     if (!reset) return res.json({ success: false, message: 'Link inválido ou já utilizado.' });
 
     if (new Date(reset.expira_em) < new Date()) {
@@ -1580,7 +1579,7 @@ app.post('/api/redefinir-senha', async (req, res) => {
             return res.json({ success: false, message: 'A senha deve ter pelo menos 6 caracteres.' });
         }
 
-        const reset = db.prepare('SELECT * FROM password_resets WHERE token = ? AND usado = 0').get(token);
+        const reset = await db.prepare('SELECT * FROM password_resets WHERE token = ? AND usado = 0').get(token);
         if (!reset) return res.json({ success: false, message: 'Link inválido ou já utilizado.' });
 
         if (new Date(reset.expira_em) < new Date()) {
@@ -1589,10 +1588,10 @@ app.post('/api/redefinir-senha', async (req, res) => {
 
         // Agora sim, alterar a senha
         const senhaHash = await bcrypt.hash(nova_senha, 10);
-        db.prepare('UPDATE usuarios SET senha = ? WHERE id = ?').run(senhaHash, reset.usuario_id);
+        await db.prepare('UPDATE usuarios SET senha = ? WHERE id = ?').run(senhaHash, reset.usuario_id);
 
         // Marcar token como usado
-        db.prepare('UPDATE password_resets SET usado = 1 WHERE id = ?').run(reset.id);
+        await db.prepare('UPDATE password_resets SET usado = 1 WHERE id = ?').run(reset.id);
 
         return res.json({ success: true, message: 'Senha alterada com sucesso! Faça login com sua nova senha.' });
     } catch (err) {
@@ -1604,7 +1603,7 @@ app.post('/api/redefinir-senha', async (req, res) => {
 // ===== Páginas ainda em construção =====
 const placeholderPages = ['seguranca.php'];
 placeholderPages.forEach(page => {
-    app.get('/' + page, (req, res) => {
+    app.get('/' + page, async (req, res) => {
         res.type('text/html').send(`
             <!DOCTYPE html><html lang="pt-br"><head><meta charset="UTF-8">
             <title>Yorkut - ${page.replace('.php','')}</title>
@@ -1635,7 +1634,7 @@ app.post('/api/login', loginLimiter, async (req, res) => {
             return res.json({ success: false, message: 'Preencha todos os campos!' });
         }
 
-        const user = db.prepare('SELECT * FROM usuarios WHERE email = ?').get(email);
+        const user = await db.prepare('SELECT * FROM usuarios WHERE email = ?').get(email);
         if (!user) {
             return res.json({ success: false, message: 'E-mail ou senha incorretos!' });
         }
@@ -1654,7 +1653,7 @@ app.post('/api/login', loginLimiter, async (req, res) => {
         }
 
         // Atualizar último acesso
-        db.prepare(`UPDATE usuarios SET ultimo_acesso = ${agora()} WHERE id = ?`).run(user.id);
+        await db.prepare(`UPDATE usuarios SET ultimo_acesso = ${agora()} WHERE id = ?`).run(user.id);
 
         // Criar sessão
         req.session.userId = user.id;
@@ -1673,7 +1672,7 @@ app.post('/api/login', loginLimiter, async (req, res) => {
 });
 
 // API: Validar token de convite
-app.post('/api/validar-token', (req, res) => {
+app.post('/api/validar-token', async (req, res) => {
     try {
         const { token } = req.body;
 
@@ -1681,7 +1680,7 @@ app.post('/api/validar-token', (req, res) => {
             return res.json({ valid: false, message: 'Digite o código do convite!' });
         }
 
-        const convite = db.prepare('SELECT * FROM convites WHERE token = ? AND usado = 0').get(token.toUpperCase().trim());
+        const convite = await db.prepare('SELECT * FROM convites WHERE token = ? AND usado = 0').get(token.toUpperCase().trim());
 
         if (!convite) {
             return res.json({ valid: false, message: 'Token inválido ou já utilizado!' });
@@ -1714,13 +1713,13 @@ app.post('/api/registro', registroLimiter, async (req, res) => {
         }
 
         // Verificar token
-        const convite = db.prepare('SELECT * FROM convites WHERE token = ? AND usado = 0').get(token.toUpperCase().trim());
+        const convite = await db.prepare('SELECT * FROM convites WHERE token = ? AND usado = 0').get(token.toUpperCase().trim());
         if (!convite) {
             return res.json({ success: false, message: 'Token inválido ou já utilizado!' });
         }
 
         // Verificar se email já existe
-        const existente = db.prepare('SELECT id FROM usuarios WHERE email = ?').get(email);
+        const existente = await db.prepare('SELECT id FROM usuarios WHERE email = ?').get(email);
         if (existente) {
             return res.json({ success: false, message: 'Este e-mail já está cadastrado!' });
         }
@@ -1731,13 +1730,13 @@ app.post('/api/registro', registroLimiter, async (req, res) => {
         // Inserir usuário com ID baseado em timestamp
         const fotoPadrao = defaultAvatar(sexo);
         const userId = generateTimestampId();
-        db.prepare(`
+        await db.prepare(`
             INSERT INTO usuarios (id, nome, email, senha, nascimento, sexo, ddi, whatsapp, foto_perfil, criado_em, ultimo_acesso)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${agora()}, ${agora()})
         `).run(userId, nome, email, senhaHash, nascimento || null, sexo || null, ddi || '+55', whatsapp || null, fotoPadrao);
 
         // Marcar token como usado
-        db.prepare(`UPDATE convites SET usado = 1, usado_por = ?, usado_em = ${agora()} WHERE id = ?`).run(userId, convite.id);
+        await db.prepare(`UPDATE convites SET usado = 1, usado_por = ?, usado_em = ${agora()} WHERE id = ?`).run(userId, convite.id);
 
         // Nota: convites NÃO são gerados automaticamente.
         // O usuário gera manualmente clicando no botão (máx 10).
@@ -1754,7 +1753,7 @@ app.post('/api/registro', registroLimiter, async (req, res) => {
 });
 
 // API: Dados do usuário logado
-app.get('/api/me', requireLogin, (req, res) => {
+app.get('/api/me', requireLogin, async (req, res) => {
     const user = getUserFromSession(req);
     if (!user) {
         return res.json({ success: false, message: 'Sessão inválida.' });
@@ -1764,7 +1763,7 @@ app.get('/api/me', requireLogin, (req, res) => {
     const { senha, ...userSafe } = user;
 
     // Buscar convites do usuário (com nome de quem usou)
-    const convites = db.prepare(`
+    const convites = await db.prepare(`
         SELECT c.token, c.usado, c.criado_em, c.usado_em,
                u.nome AS usado_por_nome, u.id AS usado_por_id
         FROM convites c
@@ -1783,24 +1782,26 @@ app.get('/api/me', requireLogin, (req, res) => {
     }
 
     // Contagens consolidadas em uma única query (performance)
-    const counts = db.prepare(`
+    const uid = user.id;
+    const recadosVistosEm = user.recados_vistos_em || null;
+    const counts = await db.prepare(`
         SELECT
-            (SELECT COUNT(*) FROM mensagens WHERE destinatario_id = @uid AND lida = 0 AND excluida_destinatario = 0) AS mensagensNaoLidas,
-            (SELECT COUNT(*) FROM recados WHERE destinatario_id = @uid AND criado_em > COALESCE(@recadosVistosEm, '2000-01-01')) AS recadosNaoLidos,
-            (SELECT COUNT(*) FROM depoimentos WHERE destinatario_id = @uid AND aprovado = 0) AS depoimentosNaoLidos,
-            (SELECT COUNT(*) FROM amizades WHERE destinatario_id = @uid AND status = 'pendente') AS solicitacoesPendentes,
-            (SELECT COUNT(*) FROM amizades WHERE status = 'aceita' AND (remetente_id = @uid OR destinatario_id = @uid)) AS totalAmigos,
-            (SELECT COUNT(*) FROM notificacoes WHERE usuario_id = @uid AND lida = 0) AS notificacoesNaoLidas,
-            (SELECT COUNT(*) FROM recados WHERE destinatario_id = @uid) AS totalRecados,
-            (SELECT COUNT(*) FROM fotos WHERE usuario_id = @uid) AS totalFotos,
-            (SELECT COUNT(*) FROM videos WHERE usuario_id = @uid) AS totalVideos
-    `).get({ uid: user.id, recadosVistosEm: user.recados_vistos_em || null });
+            (SELECT COUNT(*) FROM mensagens WHERE destinatario_id = ? AND lida = 0 AND excluida_destinatario = 0) AS mensagensNaoLidas,
+            (SELECT COUNT(*) FROM recados WHERE destinatario_id = ? AND criado_em > COALESCE(?, '2000-01-01')) AS recadosNaoLidos,
+            (SELECT COUNT(*) FROM depoimentos WHERE destinatario_id = ? AND aprovado = 0) AS depoimentosNaoLidos,
+            (SELECT COUNT(*) FROM amizades WHERE destinatario_id = ? AND status = 'pendente') AS solicitacoesPendentes,
+            (SELECT COUNT(*) FROM amizades WHERE status = 'aceita' AND (remetente_id = ? OR destinatario_id = ?)) AS totalAmigos,
+            (SELECT COUNT(*) FROM notificacoes WHERE usuario_id = ? AND lida = 0) AS notificacoesNaoLidas,
+            (SELECT COUNT(*) FROM recados WHERE destinatario_id = ?) AS totalRecados,
+            (SELECT COUNT(*) FROM fotos WHERE usuario_id = ?) AS totalFotos,
+            (SELECT COUNT(*) FROM videos WHERE usuario_id = ?) AS totalVideos
+    `).get(uid, uid, recadosVistosEm, uid, uid, uid, uid, uid, uid, uid, uid);
 
     // Se admin, contar denúncias pendentes
     let denunciasPendentes = 0;
     let denunciasComunidadesPendentes = 0;
     if (user.is_admin) {
-        const adminCounts = db.prepare(`
+        const adminCounts = await db.prepare(`
             SELECT
                 (SELECT COUNT(*) FROM denuncias WHERE status = 'pendente') AS denuncias,
                 (SELECT COUNT(*) FROM denuncias_comunidades WHERE status = 'pendente') AS denunciasCom
@@ -1831,7 +1832,7 @@ app.get('/api/me', requireLogin, (req, res) => {
 });
 
 // API: Upload de foto de perfil (base64)
-app.post('/api/upload-foto', requireLogin, (req, res) => {
+app.post('/api/upload-foto', requireLogin, async (req, res) => {
     try {
         const { foto_base64 } = req.body;
         if (!foto_base64 || !foto_base64.startsWith('data:image/')) {
@@ -1857,7 +1858,7 @@ app.post('/api/upload-foto', requireLogin, (req, res) => {
         const filepath = path.join(uploadsDir, filename);
 
         // Remover foto anterior se existir
-        const userAtual = db.prepare('SELECT foto_perfil FROM usuarios WHERE id = ?').get(userId);
+        const userAtual = await db.prepare('SELECT foto_perfil FROM usuarios WHERE id = ?').get(userId);
         if (userAtual && userAtual.foto_perfil && userAtual.foto_perfil.startsWith('/uploads/')) {
             const oldPath = path.join(__dirname, userAtual.foto_perfil.substring(1));
             if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
@@ -1868,7 +1869,7 @@ app.post('/api/upload-foto', requireLogin, (req, res) => {
 
         // Atualizar banco
         const fotoUrl = '/uploads/' + filename;
-        db.prepare('UPDATE usuarios SET foto_perfil = ? WHERE id = ?').run(fotoUrl, userId);
+        await db.prepare('UPDATE usuarios SET foto_perfil = ? WHERE id = ?').run(fotoUrl, userId);
 
         return res.json({ success: true, foto_perfil: fotoUrl });
     } catch (err) {
@@ -1878,7 +1879,7 @@ app.post('/api/upload-foto', requireLogin, (req, res) => {
 });
 
 // API: Buscar usuários por nome ou email
-app.get('/api/buscar-usuario', requireLogin, (req, res) => {
+app.get('/api/buscar-usuario', requireLogin, async (req, res) => {
     try {
         const q = (req.query.q || '').trim();
         if (!q || q.length < 2) {
@@ -1886,7 +1887,7 @@ app.get('/api/buscar-usuario', requireLogin, (req, res) => {
         }
         const meId = req.session.userId;
         const termo = '%' + q + '%';
-        const usuarios = db.prepare(`
+        const usuarios = await db.prepare(`
             SELECT id, nome, foto_perfil, sexo, cidade, estado
             FROM usuarios
             WHERE (nome LIKE ? COLLATE NOCASE OR email LIKE ? COLLATE NOCASE)
@@ -1903,18 +1904,18 @@ app.get('/api/buscar-usuario', requireLogin, (req, res) => {
 });
 
 // API: Dados de outro usuário (perfil público)
-app.get('/api/user/:id', requireLogin, (req, res) => {
+app.get('/api/user/:id', requireLogin, async (req, res) => {
     const uid = req.params.id;
     if (!uid) {
         return res.json({ success: false, message: 'ID inválido.' });
     }
-    const user = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(uid);
+    const user = await db.prepare('SELECT * FROM usuarios WHERE id = ?').get(uid);
     if (!user) {
         return res.json({ success: false, message: 'Usuário não encontrado.' });
     }
 
     // Verificar bloqueio
-    if (uid !== req.session.userId && isBlocked(req.session.userId, uid)) {
+    if (uid !== req.session.userId && await isBlocked(req.session.userId, uid)) {
         return res.json({ success: false, message: 'Usuário não encontrado.', blocked: true });
     }
 
@@ -1928,15 +1929,15 @@ app.get('/api/user/:id', requireLogin, (req, res) => {
     // Registrar visita (se não é o próprio perfil)
     if (uid !== req.session.userId) {
         try {
-            const visitante = db.prepare('SELECT visitas_rastro FROM usuarios WHERE id = ?').get(req.session.userId);
+            const visitante = await db.prepare('SELECT visitas_rastro FROM usuarios WHERE id = ?').get(req.session.userId);
             // Só registra se o visitante permite deixar rastro
             if (visitante && visitante.visitas_rastro === 'sim') {
                 // Remover visita anterior desse mesmo visitante para não duplicar
-                db.prepare('DELETE FROM visitas WHERE visitado_id = ? AND visitante_id = ?').run(uid, req.session.userId);
+                await db.prepare('DELETE FROM visitas WHERE visitado_id = ? AND visitante_id = ?').run(uid, req.session.userId);
                 // Inserir nova visita (sempre no topo = mais recente)
-                db.prepare(`INSERT INTO visitas (visitado_id, visitante_id, criado_em) VALUES (?, ?, ${agora()})`).run(uid, req.session.userId);
+                await db.prepare(`INSERT INTO visitas (visitado_id, visitante_id, criado_em) VALUES (?, ?, ${agora()})`).run(uid, req.session.userId);
                 // Manter apenas as últimas 50 visitas por perfil
-                db.prepare('DELETE FROM visitas WHERE visitado_id = ? AND id NOT IN (SELECT id FROM visitas WHERE visitado_id = ? ORDER BY criado_em DESC LIMIT 50)').run(uid, uid);
+                await db.prepare('DELETE FROM visitas WHERE visitado_id = ? AND id NOT IN (SELECT id FROM visitas WHERE visitado_id = ? ORDER BY criado_em DESC LIMIT 50)').run(uid, uid);
             }
         } catch(e) { console.error('Erro ao registrar visita:', e); }
     }
@@ -1951,7 +1952,7 @@ app.get('/api/user/:id', requireLogin, (req, res) => {
     let friendshipStatus = 'none';
     let friendshipRequestId = null;
     if (uid !== req.session.userId) {
-        const amizade = db.prepare(`
+        const amizade = await db.prepare(`
             SELECT * FROM amizades 
             WHERE (remetente_id = ? AND destinatario_id = ?) 
                OR (remetente_id = ? AND destinatario_id = ?)
@@ -1967,14 +1968,14 @@ app.get('/api/user/:id', requireLogin, (req, res) => {
     }
 
     // Contar amigos do usuário visitado
-    const totalAmigos = db.prepare(
+    const totalAmigos = await db.prepare(
         `SELECT COUNT(*) AS total FROM amizades WHERE status = 'aceita' AND (remetente_id = ? OR destinatario_id = ?)`
     ).get(uid, uid).total;
 
     // Contar recados, fotos e vídeos do usuário
-    const totalRecados = db.prepare('SELECT COUNT(*) AS c FROM recados WHERE destinatario_id = ?').get(uid).c;
-    const totalFotos = db.prepare('SELECT COUNT(*) AS c FROM fotos WHERE usuario_id = ?').get(uid).c;
-    const totalVideos = db.prepare('SELECT COUNT(*) AS c FROM videos WHERE usuario_id = ?').get(uid).c;
+    const totalRecados = (await db.prepare('SELECT COUNT(*) AS c FROM recados WHERE destinatario_id = ?').get(uid)).c;
+    const totalFotos = (await db.prepare('SELECT COUNT(*) AS c FROM fotos WHERE usuario_id = ?').get(uid)).c;
+    const totalVideos = (await db.prepare('SELECT COUNT(*) AS c FROM videos WHERE usuario_id = ?').get(uid)).c;
 
     return res.json({
         success: true,
@@ -1991,18 +1992,18 @@ app.get('/api/user/:id', requireLogin, (req, res) => {
 });
 
 // API: Listar visitantes de um perfil
-app.get('/api/visitas/:uid', requireLogin, (req, res) => {
+app.get('/api/visitas/:uid', requireLogin, async (req, res) => {
     try {
         const uid = req.params.uid;
         if (!uid) return res.json({ success: false, message: 'ID inválido.' });
 
         // Verificar se o dono do perfil tem visitas_rastro ativo
-        const dono = db.prepare('SELECT visitas_rastro FROM usuarios WHERE id = ?').get(uid);
+        const dono = await db.prepare('SELECT visitas_rastro FROM usuarios WHERE id = ?').get(uid);
         if (!dono || dono.visitas_rastro !== 'sim') {
             return res.json({ success: true, visitas: [], rastro_desativado: true });
         }
 
-        const visitas = db.prepare(`
+        const visitas = await db.prepare(`
             SELECT v.criado_em, u.id AS visitante_id, u.nome, u.foto_perfil, u.sexo
             FROM visitas v
             JOIN usuarios u ON u.id = v.visitante_id
@@ -2042,30 +2043,30 @@ app.get('/api/visitas/:uid', requireLogin, (req, res) => {
 });
 
 // API: Salvar nome
-app.post('/api/salvar-nome', requireLogin, (req, res) => {
+app.post('/api/salvar-nome', requireLogin, async (req, res) => {
     let { nome } = req.body;
     nome = sanitizeText(nome, 70);
     if (!nome) {
         return res.json({ success: false, message: 'Nome não pode ficar vazio.' });
     }
-    db.prepare('UPDATE usuarios SET nome = ? WHERE id = ?').run(nome, req.session.userId);
+    await db.prepare('UPDATE usuarios SET nome = ? WHERE id = ?').run(nome, req.session.userId);
     req.session.userName = nome;
     return res.json({ success: true, message: 'Nome atualizado!' });
 });
 
 // API: Salvar status/frase
-app.post('/api/salvar-status', requireLogin, (req, res) => {
+app.post('/api/salvar-status', requireLogin, async (req, res) => {
     const status_texto = sanitizeText(req.body.status_texto, 200);
-    db.prepare('UPDATE usuarios SET status_texto = ? WHERE id = ?').run(status_texto, req.session.userId);
+    await db.prepare('UPDATE usuarios SET status_texto = ? WHERE id = ?').run(status_texto, req.session.userId);
     return res.json({ success: true, message: 'Status atualizado!' });
 });
 
 // API: Buscar comunidades (para autocomplete @)
-app.get('/api/buscar-comunidades', requireLogin, (req, res) => {
+app.get('/api/buscar-comunidades', requireLogin, async (req, res) => {
     try {
         const q = (req.query.q || '').trim();
         if (q.length < 1) return res.json({ success: true, comunidades: [] });
-        const comunidades = db.prepare(`
+        const comunidades = await db.prepare(`
             SELECT id, nome, foto, categoria,
                    (SELECT COUNT(*) FROM comunidade_membros WHERE comunidade_id = comunidades.id) as membros
             FROM comunidades
@@ -2081,7 +2082,7 @@ app.get('/api/buscar-comunidades', requireLogin, (req, res) => {
 });
 
 // API: Buscar comunidades (para página de busca com paginação)
-app.get('/api/buscar-comunidades-full', requireLogin, (req, res) => {
+app.get('/api/buscar-comunidades-full', requireLogin, async (req, res) => {
     try {
         const q = (req.query.q || '').trim();
         const categoria = (req.query.categoria || '').trim();
@@ -2101,11 +2102,11 @@ app.get('/api/buscar-comunidades-full', requireLogin, (req, res) => {
             params.push(categoria);
         }
 
-        const countRow = db.prepare(`SELECT COUNT(*) as total FROM comunidades c ${where}`).get(...params);
+        const countRow = await db.prepare(`SELECT COUNT(*) as total FROM comunidades c ${where}`).get(...params);
         const total = countRow.total;
         const totalPages = Math.ceil(total / limit);
 
-        const comunidades = db.prepare(`
+        const comunidades = await db.prepare(`
             SELECT c.id, c.nome, c.foto, c.categoria, c.tipo, c.descricao, c.criado_em,
                    c.dono_id,
                    (SELECT nome FROM usuarios WHERE id = c.dono_id) as dono_nome,
@@ -2118,7 +2119,7 @@ app.get('/api/buscar-comunidades-full', requireLogin, (req, res) => {
         `).all(userId, ...params, limit, offset);
 
         // Categorias disponíveis
-        const categorias = db.prepare('SELECT DISTINCT categoria FROM comunidades ORDER BY categoria').all().map(r => r.categoria);
+        const categorias = (await db.prepare('SELECT DISTINCT categoria FROM comunidades ORDER BY categoria').all()).map(r => r.categoria);
 
         res.json({ success: true, comunidades, page, totalPages, total, categorias });
     } catch(err) {
@@ -2128,7 +2129,7 @@ app.get('/api/buscar-comunidades-full', requireLogin, (req, res) => {
 });
 
 // API: Salvar perfil completo
-app.post('/api/salvar-perfil', requireLogin, (req, res) => {
+app.post('/api/salvar-perfil', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const campos = [
@@ -2180,7 +2181,7 @@ app.post('/api/salvar-perfil', requireLogin, (req, res) => {
         }
 
         values.push(userId);
-        db.prepare('UPDATE usuarios SET ' + sets.join(', ') + ' WHERE id = ?').run(...values);
+        await db.prepare('UPDATE usuarios SET ' + sets.join(', ') + ' WHERE id = ?').run(...values);
 
         return res.json({ success: true, message: 'Perfil salvo com sucesso!' });
     } catch (err) {
@@ -2192,9 +2193,9 @@ app.post('/api/salvar-perfil', requireLogin, (req, res) => {
 // ===== API: Recados =====
 
 // Marcar recados como vistos (chamado ao entrar na página de recados)
-app.post('/api/recados/marcar-vistos', requireLogin, (req, res) => {
+app.post('/api/recados/marcar-vistos', requireLogin, async (req, res) => {
     try {
-        db.prepare(`UPDATE usuarios SET recados_vistos_em = ${agora()} WHERE id = ?`).run(req.session.userId);
+        await db.prepare(`UPDATE usuarios SET recados_vistos_em = ${agora()} WHERE id = ?`).run(req.session.userId);
         return res.json({ success: true });
     } catch (err) {
         return res.json({ success: false });
@@ -2202,7 +2203,7 @@ app.post('/api/recados/marcar-vistos', requireLogin, (req, res) => {
 });
 
 // Listar recados de um usuário
-app.get('/api/recados/:uid', requireLogin, (req, res) => {
+app.get('/api/recados/:uid', requireLogin, async (req, res) => {
     try {
         const uid = req.params.uid;
         const page = parseInt(req.query.page) || 1;
@@ -2214,14 +2215,14 @@ app.get('/api/recados/:uid', requireLogin, (req, res) => {
         }
 
         const blockedSq = blockedIdsSubquery(req.session.userId);
-        const total = db.prepare(`SELECT COUNT(*) as total FROM recados WHERE destinatario_id = ? AND remetente_id NOT IN ${blockedSq}`).get(uid).total;
+        const total = (await db.prepare(`SELECT COUNT(*) as total FROM recados WHERE destinatario_id = ? AND remetente_id NOT IN ${blockedSq}`).get(uid)).total;
 
         // Se o dono está visualizando seus próprios recados, marcar como vistos
         if (uid === req.session.userId) {
-            db.prepare(`UPDATE usuarios SET recados_vistos_em = ${agora()} WHERE id = ?`).run(uid);
+            await db.prepare(`UPDATE usuarios SET recados_vistos_em = ${agora()} WHERE id = ?`).run(uid);
         }
 
-        const recados = db.prepare(`
+        const recados = await db.prepare(`
             SELECT r.*, 
                    u.nome AS remetente_nome, u.foto_perfil AS remetente_foto, u.sexo AS remetente_sexo,
                    ur.nome AS respondido_nome, ur.foto_perfil AS respondido_foto, ur.sexo AS respondido_sexo
@@ -2248,7 +2249,7 @@ app.get('/api/recados/:uid', requireLogin, (req, res) => {
 });
 
 // Enviar recado
-app.post('/api/recados', requireLogin, (req, res) => {
+app.post('/api/recados', requireLogin, async (req, res) => {
     try {
         const { destinatario_id } = req.body;
         let mensagem = req.body.mensagem;
@@ -2261,17 +2262,17 @@ app.post('/api/recados', requireLogin, (req, res) => {
 
         const destId = String(destinatario_id);
         // Verificar se destinatário existe
-        const dest = db.prepare('SELECT id FROM usuarios WHERE id = ?').get(destId);
+        const dest = await db.prepare('SELECT id FROM usuarios WHERE id = ?').get(destId);
         if (!dest) {
             return res.json({ success: false, message: 'Usuário não encontrado.' });
         }
 
         // Verificar bloqueio
-        if (isBlocked(remetente_id, destId)) {
+        if (await isBlocked(remetente_id, destId)) {
             return res.json({ success: false, message: 'Não é possível enviar recado para este usuário.' });
         }
 
-        const result = db.prepare(
+        const result = await db.prepare(
             `INSERT INTO recados (destinatario_id, remetente_id, mensagem, criado_em) VALUES (?, ?, ?, ${agora()})`
         ).run(destId, remetente_id, mensagem.trim());
 
@@ -2286,7 +2287,7 @@ app.post('/api/recados', requireLogin, (req, res) => {
 });
 
 // Responder recado
-app.post('/api/recados/:id/responder', requireLogin, (req, res) => {
+app.post('/api/recados/:id/responder', requireLogin, async (req, res) => {
     try {
         const recadoId = parseInt(req.params.id);
         const { resposta } = req.body;
@@ -2297,12 +2298,12 @@ app.post('/api/recados/:id/responder', requireLogin, (req, res) => {
         }
 
         // Verificar se o recado pertence ao usuário
-        const recado = db.prepare('SELECT * FROM recados WHERE id = ? AND destinatario_id = ?').get(recadoId, userId);
+        const recado = await db.prepare('SELECT * FROM recados WHERE id = ? AND destinatario_id = ?').get(recadoId, userId);
         if (!recado) {
             return res.json({ success: false, message: 'Recado não encontrado.' });
         }
 
-        db.prepare(`UPDATE recados SET resposta = ?, resposta_em = ${agora()} WHERE id = ?`).run(resposta.trim(), recadoId);
+        await db.prepare(`UPDATE recados SET resposta = ?, resposta_em = ${agora()} WHERE id = ?`).run(resposta.trim(), recadoId);
 
         return res.json({ success: true, message: 'Resposta enviada!' });
     } catch (err) {
@@ -2312,7 +2313,7 @@ app.post('/api/recados/:id/responder', requireLogin, (req, res) => {
 });
 
 // Excluir recados (dono do perfil OU remetente)
-app.post('/api/recados/excluir', requireLogin, (req, res) => {
+app.post('/api/recados/excluir', requireLogin, async (req, res) => {
     try {
         const { ids } = req.body;
         const userId = req.session.userId;
@@ -2322,7 +2323,7 @@ app.post('/api/recados/excluir', requireLogin, (req, res) => {
         }
 
         const placeholders = ids.map(() => '?').join(',');
-        const deleted = db.prepare(
+        const deleted = await db.prepare(
             `DELETE FROM recados WHERE id IN (${placeholders}) AND (destinatario_id = ? OR remetente_id = ?)`
         ).run(...ids.map(Number), userId, userId);
 
@@ -2334,16 +2335,16 @@ app.post('/api/recados/excluir', requireLogin, (req, res) => {
 });
 
 // Recados enviados pelo usuário
-app.get('/api/recados-enviados', requireLogin, (req, res) => {
+app.get('/api/recados-enviados', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const page = parseInt(req.query.page) || 1;
         const limit = Math.min(parseInt(req.query.limit) || 10, 50);
         const offset = (page - 1) * limit;
 
-        const total = db.prepare('SELECT COUNT(*) as total FROM recados WHERE remetente_id = ?').get(userId).total;
+        const total = (await db.prepare('SELECT COUNT(*) as total FROM recados WHERE remetente_id = ?').get(userId)).total;
 
-        const recados = db.prepare(`
+        const recados = await db.prepare(`
             SELECT r.*, 
                    u.nome AS destinatario_nome, u.foto_perfil AS destinatario_foto, u.sexo AS destinatario_sexo
             FROM recados r
@@ -2370,7 +2371,7 @@ app.get('/api/recados-enviados', requireLogin, (req, res) => {
 // ===== API: Mensagens Particulares =====
 
 // Enviar mensagem
-app.post('/api/mensagens', requireLogin, (req, res) => {
+app.post('/api/mensagens', requireLogin, async (req, res) => {
     try {
         const { destinatario_id, assunto, mensagem } = req.body;
         const remetente_id = req.session.userId;
@@ -2380,7 +2381,7 @@ app.post('/api/mensagens', requireLogin, (req, res) => {
         }
 
         const destId = String(destinatario_id);
-        const dest = db.prepare('SELECT id FROM usuarios WHERE id = ?').get(destId);
+        const dest = await db.prepare('SELECT id FROM usuarios WHERE id = ?').get(destId);
         if (!dest) {
             return res.json({ success: false, message: 'Destinatário não encontrado.' });
         }
@@ -2390,11 +2391,11 @@ app.post('/api/mensagens', requireLogin, (req, res) => {
         }
 
         // Verificar bloqueio
-        if (isBlocked(remetente_id, destId)) {
+        if (await isBlocked(remetente_id, destId)) {
             return res.json({ success: false, message: 'Não é possível enviar mensagem para este usuário.' });
         }
 
-        const result = db.prepare(
+        const result = await db.prepare(
             `INSERT INTO mensagens (remetente_id, destinatario_id, assunto, mensagem, criado_em) VALUES (?, ?, ?, ?, ${agora()})`
         ).run(remetente_id, destId, assunto.trim(), mensagem.trim());
 
@@ -2406,7 +2407,7 @@ app.post('/api/mensagens', requireLogin, (req, res) => {
 });
 
 // Listar caixa de entrada
-app.get('/api/mensagens', requireLogin, (req, res) => {
+app.get('/api/mensagens', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const page = parseInt(req.query.page) || 1;
@@ -2414,11 +2415,11 @@ app.get('/api/mensagens', requireLogin, (req, res) => {
         const offset = (page - 1) * limit;
 
         const blockedSqM = blockedIdsSubquery(userId);
-        const total = db.prepare(
+        const total = await db.prepare(
             `SELECT COUNT(*) as total FROM mensagens WHERE destinatario_id = ? AND excluida_destinatario = 0 AND remetente_id NOT IN ${blockedSqM}`
         ).get(userId).total;
 
-        const mensagens = db.prepare(`
+        const mensagens = await db.prepare(`
             SELECT m.*, u.nome AS remetente_nome, u.foto_perfil AS remetente_foto, u.sexo AS remetente_sexo
             FROM mensagens m
             JOIN usuarios u ON u.id = m.remetente_id
@@ -2428,7 +2429,7 @@ app.get('/api/mensagens', requireLogin, (req, res) => {
             LIMIT ? OFFSET ?
         `).all(userId, limit, offset);
 
-        const naoLidas = db.prepare(
+        const naoLidas = await db.prepare(
             `SELECT COUNT(*) as total FROM mensagens WHERE destinatario_id = ? AND lida = 0 AND excluida_destinatario = 0 AND remetente_id NOT IN ${blockedSqM}`
         ).get(userId).total;
 
@@ -2448,18 +2449,18 @@ app.get('/api/mensagens', requireLogin, (req, res) => {
 });
 
 // Listar mensagens enviadas
-app.get('/api/mensagens-enviadas', requireLogin, (req, res) => {
+app.get('/api/mensagens-enviadas', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const page = parseInt(req.query.page) || 1;
         const limit = Math.min(parseInt(req.query.limit) || 10, 50);
         const offset = (page - 1) * limit;
 
-        const total = db.prepare(
+        const total = await db.prepare(
             'SELECT COUNT(*) as total FROM mensagens WHERE remetente_id = ? AND excluida_remetente = 0'
         ).get(userId).total;
 
-        const mensagens = db.prepare(`
+        const mensagens = await db.prepare(`
             SELECT m.*, u.nome AS destinatario_nome, u.foto_perfil AS destinatario_foto, u.sexo AS destinatario_sexo
             FROM mensagens m
             JOIN usuarios u ON u.id = m.destinatario_id
@@ -2483,12 +2484,12 @@ app.get('/api/mensagens-enviadas', requireLogin, (req, res) => {
 });
 
 // Ler mensagem (marcar como lida e retornar conteúdo)
-app.get('/api/mensagens/:id', requireLogin, (req, res) => {
+app.get('/api/mensagens/:id', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const msgId = parseInt(req.params.id);
 
-        const msg = db.prepare(`
+        const msg = await db.prepare(`
             SELECT m.*, 
                    ur.nome AS remetente_nome, ur.foto_perfil AS remetente_foto, ur.sexo AS remetente_sexo,
                    ud.nome AS destinatario_nome, ud.foto_perfil AS destinatario_foto, ud.sexo AS destinatario_sexo
@@ -2504,7 +2505,7 @@ app.get('/api/mensagens/:id', requireLogin, (req, res) => {
 
         // Marcar como lida se for o destinatário
         if (msg.destinatario_id === userId && !msg.lida) {
-            db.prepare('UPDATE mensagens SET lida = 1 WHERE id = ?').run(msgId);
+            await db.prepare('UPDATE mensagens SET lida = 1 WHERE id = ?').run(msgId);
         }
 
         return res.json({ success: true, mensagem: msg });
@@ -2515,7 +2516,7 @@ app.get('/api/mensagens/:id', requireLogin, (req, res) => {
 });
 
 // Excluir mensagens
-app.post('/api/mensagens/excluir', requireLogin, (req, res) => {
+app.post('/api/mensagens/excluir', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { ids, tipo } = req.body; // tipo: 'inbox' ou 'outbox'
@@ -2527,11 +2528,11 @@ app.post('/api/mensagens/excluir', requireLogin, (req, res) => {
         const placeholders = ids.map(() => '?').join(',');
         
         if (tipo === 'outbox') {
-            db.prepare(
+            await db.prepare(
                 `UPDATE mensagens SET excluida_remetente = 1 WHERE id IN (${placeholders}) AND remetente_id = ?`
             ).run(...ids, userId);
         } else {
-            db.prepare(
+            await db.prepare(
                 `UPDATE mensagens SET excluida_destinatario = 1 WHERE id IN (${placeholders}) AND destinatario_id = ?`
             ).run(...ids, userId);
         }
@@ -2544,20 +2545,20 @@ app.post('/api/mensagens/excluir', requireLogin, (req, res) => {
 });
 
 // API: Gerar convite (1 por vez, máx 10)
-app.post('/api/gerar-convite', requireLogin, (req, res) => {
+app.post('/api/gerar-convite', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const MAX_CONVITES = 10;
 
         // Contar quantos já gerou
-        const totalGerados = db.prepare('SELECT COUNT(*) as total FROM convites WHERE criado_por = ?').get(userId).total;
+        const totalGerados = (await db.prepare('SELECT COUNT(*) as total FROM convites WHERE criado_por = ?').get(userId)).total;
 
         if (totalGerados >= MAX_CONVITES) {
             return res.json({ success: false, message: 'Você já gerou todos os seus ' + MAX_CONVITES + ' convites.' });
         }
 
         const novoToken = crypto.randomBytes(8).toString('hex').toUpperCase();
-        db.prepare(`INSERT INTO convites (token, criado_por, criado_em) VALUES (?, ?, ${agora()})`).run(novoToken, userId);
+        await db.prepare(`INSERT INTO convites (token, criado_por, criado_em) VALUES (?, ?, ${agora()})`).run(novoToken, userId);
 
         const restantes = MAX_CONVITES - totalGerados - 1;
 
@@ -2576,9 +2577,9 @@ app.post('/api/gerar-convite', requireLogin, (req, res) => {
 // ===== API: Depoimentos =====
 
 // Marcar depoimentos como vistos (DEVE vir antes das rotas com :id)
-app.post('/api/depoimentos/marcar-vistos', requireLogin, (req, res) => {
+app.post('/api/depoimentos/marcar-vistos', requireLogin, async (req, res) => {
     try {
-        db.prepare(`UPDATE usuarios SET depoimentos_vistos_em = ${agora()} WHERE id = ?`).run(req.session.userId);
+        await db.prepare(`UPDATE usuarios SET depoimentos_vistos_em = ${agora()} WHERE id = ?`).run(req.session.userId);
         return res.json({ success: true });
     } catch (err) {
         return res.json({ success: false });
@@ -2586,7 +2587,7 @@ app.post('/api/depoimentos/marcar-vistos', requireLogin, (req, res) => {
 });
 
 // Enviar depoimento para alguém
-app.post('/api/depoimentos', requireLogin, (req, res) => {
+app.post('/api/depoimentos', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { destinatario_id, mensagem } = req.body;
@@ -2600,17 +2601,17 @@ app.post('/api/depoimentos', requireLogin, (req, res) => {
             return res.json({ success: false, message: 'Você não pode escrever depoimento para si mesmo.' });
         }
 
-        const dest = db.prepare('SELECT id FROM usuarios WHERE id = ?').get(destId);
+        const dest = await db.prepare('SELECT id FROM usuarios WHERE id = ?').get(destId);
         if (!dest) {
             return res.json({ success: false, message: 'Usuário não encontrado.' });
         }
 
         // Verificar bloqueio
-        if (isBlocked(userId, destId)) {
+        if (await isBlocked(userId, destId)) {
             return res.json({ success: false, message: 'Não é possível enviar depoimento para este usuário.' });
         }
 
-        db.prepare(
+        await db.prepare(
             `INSERT INTO depoimentos (destinatario_id, remetente_id, mensagem, criado_em) VALUES (?, ?, ?, ${agora()})`
         ).run(destId, userId, mensagem.trim());
 
@@ -2625,7 +2626,7 @@ app.post('/api/depoimentos', requireLogin, (req, res) => {
 });
 
 // Listar depoimentos de um usuário (aprovados + pendentes para o dono)
-app.get('/api/depoimentos/:uid', requireLogin, (req, res) => {
+app.get('/api/depoimentos/:uid', requireLogin, async (req, res) => {
     try {
         const uid = req.params.uid;
         const userId = req.session.userId;
@@ -2634,7 +2635,7 @@ app.get('/api/depoimentos/:uid', requireLogin, (req, res) => {
         const blockedSqD = blockedIdsSubquery(userId);
         let depoimentos;
         if (isOwner) {
-            depoimentos = db.prepare(`
+            depoimentos = await db.prepare(`
                 SELECT d.*, u.nome AS remetente_nome, u.foto_perfil AS remetente_foto, u.sexo AS remetente_sexo
                 FROM depoimentos d
                 JOIN usuarios u ON u.id = d.remetente_id
@@ -2643,7 +2644,7 @@ app.get('/api/depoimentos/:uid', requireLogin, (req, res) => {
             `).all(uid);
         } else {
             // Show approved + sender's own pending depoimentos
-            depoimentos = db.prepare(`
+            depoimentos = await db.prepare(`
                 SELECT d.*, u.nome AS remetente_nome, u.foto_perfil AS remetente_foto, u.sexo AS remetente_sexo
                 FROM depoimentos d
                 JOIN usuarios u ON u.id = d.remetente_id
@@ -2652,7 +2653,7 @@ app.get('/api/depoimentos/:uid', requireLogin, (req, res) => {
             `).all(uid, userId);
         }
 
-        const perfil = db.prepare('SELECT id, nome, foto_perfil, sexo FROM usuarios WHERE id = ?').get(uid);
+        const perfil = await db.prepare('SELECT id, nome, foto_perfil, sexo FROM usuarios WHERE id = ?').get(uid);
         return res.json({ success: true, depoimentos, perfil, isOwner, myId: userId });
     } catch (err) {
         console.error('Erro ao buscar depoimentos:', err);
@@ -2661,16 +2662,16 @@ app.get('/api/depoimentos/:uid', requireLogin, (req, res) => {
 });
 
 // Aprovar depoimento
-app.post('/api/depoimentos/:id/aprovar', requireLogin, (req, res) => {
+app.post('/api/depoimentos/:id/aprovar', requireLogin, async (req, res) => {
     try {
         const depId = parseInt(req.params.id);
         const userId = req.session.userId;
 
-        const dep = db.prepare('SELECT * FROM depoimentos WHERE id = ?').get(depId);
+        const dep = await db.prepare('SELECT * FROM depoimentos WHERE id = ?').get(depId);
         if (!dep) return res.json({ success: false, message: 'Depoimento não encontrado.' });
         if (dep.destinatario_id !== userId) return res.json({ success: false, message: 'Sem permissão.' });
 
-        db.prepare('UPDATE depoimentos SET aprovado = 1 WHERE id = ?').run(depId);
+        await db.prepare('UPDATE depoimentos SET aprovado = 1 WHERE id = ?').run(depId);
         return res.json({ success: true, message: 'Depoimento aprovado!' });
     } catch (err) {
         console.error('Erro ao aprovar depoimento:', err);
@@ -2679,18 +2680,18 @@ app.post('/api/depoimentos/:id/aprovar', requireLogin, (req, res) => {
 });
 
 // Recusar (excluir) depoimento
-app.post('/api/depoimentos/:id/recusar', requireLogin, (req, res) => {
+app.post('/api/depoimentos/:id/recusar', requireLogin, async (req, res) => {
     try {
         const depId = parseInt(req.params.id);
         const userId = req.session.userId;
 
-        const dep = db.prepare('SELECT * FROM depoimentos WHERE id = ?').get(depId);
+        const dep = await db.prepare('SELECT * FROM depoimentos WHERE id = ?').get(depId);
         if (!dep) return res.json({ success: false, message: 'Depoimento não encontrado.' });
         if (dep.destinatario_id !== userId && dep.remetente_id !== userId) {
             return res.json({ success: false, message: 'Sem permissão.' });
         }
 
-        db.prepare('DELETE FROM depoimentos WHERE id = ?').run(depId);
+        await db.prepare('DELETE FROM depoimentos WHERE id = ?').run(depId);
         return res.json({ success: true, message: 'Depoimento removido.' });
     } catch (err) {
         console.error('Erro ao recusar depoimento:', err);
@@ -2702,13 +2703,13 @@ app.post('/api/depoimentos/:id/recusar', requireLogin, (req, res) => {
 const MAX_FOTOS = 24;
 
 // Upload de foto (base64) — MUST be before /:uid route
-app.post('/api/fotos/upload', requireLogin, (req, res) => {
+app.post('/api/fotos/upload', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { foto_base64, descricao } = req.body;
 
         // Verificar limite
-        const count = db.prepare('SELECT COUNT(*) AS total FROM fotos WHERE usuario_id = ?').get(userId);
+        const count = await db.prepare('SELECT COUNT(*) AS total FROM fotos WHERE usuario_id = ?').get(userId);
         if (count.total >= MAX_FOTOS) {
             return res.json({ success: false, message: `Limite de ${MAX_FOTOS} fotos atingido.` });
         }
@@ -2736,7 +2737,7 @@ app.post('/api/fotos/upload', requireLogin, (req, res) => {
         const arquivo = '/uploads/fotos/' + filename;
         const desc = (descricao || '').trim().substring(0, 200);
 
-        db.prepare(`INSERT INTO fotos (usuario_id, arquivo, descricao, criado_em) VALUES (?, ?, ?, ${agora()})`).run(userId, arquivo, desc);
+        await db.prepare(`INSERT INTO fotos (usuario_id, arquivo, descricao, criado_em) VALUES (?, ?, ?, ${agora()})`).run(userId, arquivo, desc);
 
         return res.json({ success: true, message: 'Foto enviada com sucesso!' });
     } catch (err) {
@@ -2746,18 +2747,18 @@ app.post('/api/fotos/upload', requireLogin, (req, res) => {
 });
 
 // Deletar comentário (owner da foto OU autor do comentário) — MUST be before /api/fotos/:id
-app.delete('/api/fotos/comentario/:id', requireLogin, (req, res) => {
+app.delete('/api/fotos/comentario/:id', requireLogin, async (req, res) => {
     try {
         const commentId = parseInt(req.params.id);
         const userId = req.session.userId;
 
-        const comment = db.prepare('SELECT c.*, f.usuario_id AS foto_owner FROM fotos_comentarios c JOIN fotos f ON f.id = c.foto_id WHERE c.id = ?').get(commentId);
+        const comment = await db.prepare('SELECT c.*, f.usuario_id AS foto_owner FROM fotos_comentarios c JOIN fotos f ON f.id = c.foto_id WHERE c.id = ?').get(commentId);
         if (!comment) return res.json({ success: false, message: 'Comentário não encontrado.' });
         if (comment.usuario_id !== userId && comment.foto_owner !== userId) {
             return res.json({ success: false, message: 'Sem permissão.' });
         }
 
-        db.prepare('DELETE FROM fotos_comentarios WHERE id = ?').run(commentId);
+        await db.prepare('DELETE FROM fotos_comentarios WHERE id = ?').run(commentId);
         return res.json({ success: true, message: 'Comentário removido.' });
     } catch (err) {
         console.error('Erro ao deletar comentário:', err);
@@ -2766,18 +2767,18 @@ app.delete('/api/fotos/comentario/:id', requireLogin, (req, res) => {
 });
 
 // Listar fotos de um usuário
-app.get('/api/fotos/:uid', requireLogin, (req, res) => {
+app.get('/api/fotos/:uid', requireLogin, async (req, res) => {
     try {
         const uid = req.params.uid;
         const userId = req.session.userId;
         const isOwner = uid === userId;
 
         // Verificar bloqueio
-        if (!isOwner && isBlocked(userId, uid)) {
+        if (!isOwner && await isBlocked(userId, uid)) {
             return res.json({ success: false, message: 'Usuário não encontrado.', blocked: true });
         }
 
-        const fotos = db.prepare(`
+        const fotos = await db.prepare(`
             SELECT f.*, 
                 (SELECT COUNT(*) FROM fotos_curtidas WHERE foto_id = f.id) AS curtidas,
                 (SELECT COUNT(*) FROM fotos_comentarios WHERE foto_id = f.id) AS comentarios
@@ -2786,7 +2787,7 @@ app.get('/api/fotos/:uid', requireLogin, (req, res) => {
             ORDER BY f.criado_em DESC
         `).all(uid);
 
-        const perfil = db.prepare('SELECT id, nome, foto_perfil, sexo FROM usuarios WHERE id = ?').get(uid);
+        const perfil = await db.prepare('SELECT id, nome, foto_perfil, sexo FROM usuarios WHERE id = ?').get(uid);
         const total = fotos.length;
 
         return res.json({ success: true, fotos, perfil, isOwner, total, maxFotos: MAX_FOTOS });
@@ -2797,14 +2798,14 @@ app.get('/api/fotos/:uid', requireLogin, (req, res) => {
 });
 
 // Detalhe de uma foto (com curtidas e comentários)
-app.get('/api/fotos/:uid/:fotoId', requireLogin, (req, res) => {
+app.get('/api/fotos/:uid/:fotoId', requireLogin, async (req, res) => {
     try {
         const uid = req.params.uid;
         const fotoId = parseInt(req.params.fotoId);
         const userId = req.session.userId;
         const isOwner = uid === userId;
 
-        const foto = db.prepare(`
+        const foto = await db.prepare(`
             SELECT f.*,
                 (SELECT COUNT(*) FROM fotos_curtidas WHERE foto_id = f.id) AS curtidas
             FROM fotos f
@@ -2813,10 +2814,10 @@ app.get('/api/fotos/:uid/:fotoId', requireLogin, (req, res) => {
 
         if (!foto) return res.json({ success: false, message: 'Foto não encontrada.' });
 
-        const minhaCurtida = db.prepare('SELECT id FROM fotos_curtidas WHERE foto_id = ? AND usuario_id = ?').get(fotoId, userId);
+        const minhaCurtida = await db.prepare('SELECT id FROM fotos_curtidas WHERE foto_id = ? AND usuario_id = ?').get(fotoId, userId);
         foto.curti = !!minhaCurtida;
 
-        const comentarios = db.prepare(`
+        const comentarios = await db.prepare(`
             SELECT c.*, u.nome AS autor_nome, u.foto_perfil AS autor_foto, u.sexo AS autor_sexo
             FROM fotos_comentarios c
             JOIN usuarios u ON u.id = c.usuario_id
@@ -2824,7 +2825,7 @@ app.get('/api/fotos/:uid/:fotoId', requireLogin, (req, res) => {
             ORDER BY c.criado_em ASC
         `).all(fotoId);
 
-        const perfil = db.prepare('SELECT id, nome, foto_perfil, sexo FROM usuarios WHERE id = ?').get(uid);
+        const perfil = await db.prepare('SELECT id, nome, foto_perfil, sexo FROM usuarios WHERE id = ?').get(uid);
 
         return res.json({ success: true, foto, comentarios, perfil, isOwner, myId: userId });
     } catch (err) {
@@ -2834,25 +2835,25 @@ app.get('/api/fotos/:uid/:fotoId', requireLogin, (req, res) => {
 });
 
 // Curtir/descurtir foto
-app.post('/api/fotos/:id/curtir', requireLogin, (req, res) => {
+app.post('/api/fotos/:id/curtir', requireLogin, async (req, res) => {
     try {
         const fotoId = parseInt(req.params.id);
         const userId = req.session.userId;
 
-        const foto = db.prepare('SELECT * FROM fotos WHERE id = ?').get(fotoId);
+        const foto = await db.prepare('SELECT * FROM fotos WHERE id = ?').get(fotoId);
         if (!foto) return res.json({ success: false, message: 'Foto não encontrada.' });
 
-        const existing = db.prepare('SELECT id FROM fotos_curtidas WHERE foto_id = ? AND usuario_id = ?').get(fotoId, userId);
+        const existing = await db.prepare('SELECT id FROM fotos_curtidas WHERE foto_id = ? AND usuario_id = ?').get(fotoId, userId);
         let liked;
         if (existing) {
-            db.prepare('DELETE FROM fotos_curtidas WHERE id = ?').run(existing.id);
+            await db.prepare('DELETE FROM fotos_curtidas WHERE id = ?').run(existing.id);
             liked = false;
         } else {
-            db.prepare(`INSERT INTO fotos_curtidas (foto_id, usuario_id, criado_em) VALUES (?, ?, ${agora()})`).run(fotoId, userId);
+            await db.prepare(`INSERT INTO fotos_curtidas (foto_id, usuario_id, criado_em) VALUES (?, ?, ${agora()})`).run(fotoId, userId);
             liked = true;
         }
 
-        const total = db.prepare('SELECT COUNT(*) AS c FROM fotos_curtidas WHERE foto_id = ?').get(fotoId).c;
+        const total = (await db.prepare('SELECT COUNT(*) AS c FROM fotos_curtidas WHERE foto_id = ?').get(fotoId)).c;
         return res.json({ success: true, liked, total });
     } catch (err) {
         console.error('Erro ao curtir foto:', err);
@@ -2861,7 +2862,7 @@ app.post('/api/fotos/:id/curtir', requireLogin, (req, res) => {
 });
 
 // Comentar foto
-app.post('/api/fotos/:id/comentar', requireLogin, (req, res) => {
+app.post('/api/fotos/:id/comentar', requireLogin, async (req, res) => {
     try {
         const fotoId = parseInt(req.params.id);
         const userId = req.session.userId;
@@ -2869,10 +2870,10 @@ app.post('/api/fotos/:id/comentar', requireLogin, (req, res) => {
 
         if (!mensagem || !mensagem.trim()) return res.json({ success: false, message: 'Comentário vazio.' });
 
-        const foto = db.prepare('SELECT * FROM fotos WHERE id = ?').get(fotoId);
+        const foto = await db.prepare('SELECT * FROM fotos WHERE id = ?').get(fotoId);
         if (!foto) return res.json({ success: false, message: 'Foto não encontrada.' });
 
-        db.prepare(`INSERT INTO fotos_comentarios (foto_id, usuario_id, mensagem, criado_em) VALUES (?, ?, ?, ${agora()})`).run(fotoId, userId, mensagem.trim());
+        await db.prepare(`INSERT INTO fotos_comentarios (foto_id, usuario_id, mensagem, criado_em) VALUES (?, ?, ?, ${agora()})`).run(fotoId, userId, mensagem.trim());
 
         return res.json({ success: true, message: 'Comentário enviado.' });
     } catch (err) {
@@ -2882,18 +2883,18 @@ app.post('/api/fotos/:id/comentar', requireLogin, (req, res) => {
 });
 
 // Atualizar descrição da foto (owner only)
-app.put('/api/fotos/:id/descricao', requireLogin, (req, res) => {
+app.put('/api/fotos/:id/descricao', requireLogin, async (req, res) => {
     try {
         const fotoId = parseInt(req.params.id);
         const userId = req.session.userId;
         const { descricao } = req.body;
 
-        const foto = db.prepare('SELECT * FROM fotos WHERE id = ?').get(fotoId);
+        const foto = await db.prepare('SELECT * FROM fotos WHERE id = ?').get(fotoId);
         if (!foto) return res.json({ success: false, message: 'Foto não encontrada.' });
         if (foto.usuario_id !== userId) return res.json({ success: false, message: 'Sem permissão.' });
 
         const desc = (descricao || '').trim().substring(0, 200);
-        db.prepare('UPDATE fotos SET descricao = ? WHERE id = ?').run(desc, fotoId);
+        await db.prepare('UPDATE fotos SET descricao = ? WHERE id = ?').run(desc, fotoId);
 
         return res.json({ success: true, message: 'Descrição atualizada.' });
     } catch (err) {
@@ -2903,12 +2904,12 @@ app.put('/api/fotos/:id/descricao', requireLogin, (req, res) => {
 });
 
 // Deletar foto (owner only)
-app.delete('/api/fotos/:id', requireLogin, (req, res) => {
+app.delete('/api/fotos/:id', requireLogin, async (req, res) => {
     try {
         const fotoId = parseInt(req.params.id);
         const userId = req.session.userId;
 
-        const foto = db.prepare('SELECT * FROM fotos WHERE id = ?').get(fotoId);
+        const foto = await db.prepare('SELECT * FROM fotos WHERE id = ?').get(fotoId);
         if (!foto) return res.json({ success: false, message: 'Foto não encontrada.' });
         if (foto.usuario_id !== userId) return res.json({ success: false, message: 'Sem permissão.' });
 
@@ -2919,9 +2920,9 @@ app.delete('/api/fotos/:id', requireLogin, (req, res) => {
         }
 
         // Deletar da DB (curtidas e comentários são CASCADE)
-        db.prepare('DELETE FROM fotos_curtidas WHERE foto_id = ?').run(fotoId);
-        db.prepare('DELETE FROM fotos_comentarios WHERE foto_id = ?').run(fotoId);
-        db.prepare('DELETE FROM fotos WHERE id = ?').run(fotoId);
+        await db.prepare('DELETE FROM fotos_curtidas WHERE foto_id = ?').run(fotoId);
+        await db.prepare('DELETE FROM fotos_comentarios WHERE foto_id = ?').run(fotoId);
+        await db.prepare('DELETE FROM fotos WHERE id = ?').run(fotoId);
 
         return res.json({ success: true, message: 'Foto removida.' });
     } catch (err) {
@@ -2948,12 +2949,12 @@ function extractYoutubeId(url) {
 }
 
 // Adicionar vídeo — MUST be before /:uid route
-app.post('/api/videos/add', requireLogin, (req, res) => {
+app.post('/api/videos/add', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { youtube_url, descricao } = req.body;
 
-        const count = db.prepare('SELECT COUNT(*) AS total FROM videos WHERE usuario_id = ?').get(userId);
+        const count = await db.prepare('SELECT COUNT(*) AS total FROM videos WHERE usuario_id = ?').get(userId);
         if (count.total >= MAX_VIDEOS) {
             return res.json({ success: false, message: `Limite de ${MAX_VIDEOS} vídeos atingido.` });
         }
@@ -2964,7 +2965,7 @@ app.post('/api/videos/add', requireLogin, (req, res) => {
         }
 
         const desc = (descricao || '').trim().substring(0, 200);
-        db.prepare(`INSERT INTO videos (usuario_id, youtube_id, descricao, criado_em) VALUES (?, ?, ?, ${agora()})`).run(userId, ytId, desc);
+        await db.prepare(`INSERT INTO videos (usuario_id, youtube_id, descricao, criado_em) VALUES (?, ?, ?, ${agora()})`).run(userId, ytId, desc);
 
         return res.json({ success: true, message: 'Vídeo adicionado com sucesso!' });
     } catch (err) {
@@ -2974,18 +2975,18 @@ app.post('/api/videos/add', requireLogin, (req, res) => {
 });
 
 // Deletar comentário de vídeo — MUST be before /api/videos/:id
-app.delete('/api/videos/comentario/:id', requireLogin, (req, res) => {
+app.delete('/api/videos/comentario/:id', requireLogin, async (req, res) => {
     try {
         const commentId = parseInt(req.params.id);
         const userId = req.session.userId;
 
-        const comment = db.prepare('SELECT c.*, v.usuario_id AS video_owner FROM videos_comentarios c JOIN videos v ON v.id = c.video_id WHERE c.id = ?').get(commentId);
+        const comment = await db.prepare('SELECT c.*, v.usuario_id AS video_owner FROM videos_comentarios c JOIN videos v ON v.id = c.video_id WHERE c.id = ?').get(commentId);
         if (!comment) return res.json({ success: false, message: 'Comentário não encontrado.' });
         if (comment.usuario_id !== userId && comment.video_owner !== userId) {
             return res.json({ success: false, message: 'Sem permissão.' });
         }
 
-        db.prepare('DELETE FROM videos_comentarios WHERE id = ?').run(commentId);
+        await db.prepare('DELETE FROM videos_comentarios WHERE id = ?').run(commentId);
         return res.json({ success: true, message: 'Comentário removido.' });
     } catch (err) {
         console.error('Erro ao deletar comentário de vídeo:', err);
@@ -2994,18 +2995,18 @@ app.delete('/api/videos/comentario/:id', requireLogin, (req, res) => {
 });
 
 // Listar vídeos de um usuário
-app.get('/api/videos/:uid', requireLogin, (req, res) => {
+app.get('/api/videos/:uid', requireLogin, async (req, res) => {
     try {
         const uid = req.params.uid;
         const userId = req.session.userId;
         const isOwner = uid === userId;
 
         // Verificar bloqueio
-        if (!isOwner && isBlocked(userId, uid)) {
+        if (!isOwner && await isBlocked(userId, uid)) {
             return res.json({ success: false, message: 'Usuário não encontrado.', blocked: true });
         }
 
-        const videos = db.prepare(`
+        const videos = await db.prepare(`
             SELECT v.*, 
                 (SELECT COUNT(*) FROM videos_curtidas WHERE video_id = v.id) AS curtidas,
                 (SELECT COUNT(*) FROM videos_comentarios WHERE video_id = v.id) AS comentarios
@@ -3014,7 +3015,7 @@ app.get('/api/videos/:uid', requireLogin, (req, res) => {
             ORDER BY v.criado_em DESC
         `).all(uid);
 
-        const perfil = db.prepare('SELECT id, nome, foto_perfil, sexo FROM usuarios WHERE id = ?').get(uid);
+        const perfil = await db.prepare('SELECT id, nome, foto_perfil, sexo FROM usuarios WHERE id = ?').get(uid);
         const total = videos.length;
 
         return res.json({ success: true, videos, perfil, isOwner, total, maxVideos: MAX_VIDEOS });
@@ -3025,14 +3026,14 @@ app.get('/api/videos/:uid', requireLogin, (req, res) => {
 });
 
 // Detalhe de um vídeo (com curtidas e comentários)
-app.get('/api/videos/:uid/:videoId', requireLogin, (req, res) => {
+app.get('/api/videos/:uid/:videoId', requireLogin, async (req, res) => {
     try {
         const uid = req.params.uid;
         const videoId = parseInt(req.params.videoId);
         const userId = req.session.userId;
         const isOwner = uid === userId;
 
-        const video = db.prepare(`
+        const video = await db.prepare(`
             SELECT v.*,
                 (SELECT COUNT(*) FROM videos_curtidas WHERE video_id = v.id) AS curtidas
             FROM videos v
@@ -3041,10 +3042,10 @@ app.get('/api/videos/:uid/:videoId', requireLogin, (req, res) => {
 
         if (!video) return res.json({ success: false, message: 'Vídeo não encontrado.' });
 
-        const minhaCurtida = db.prepare('SELECT id FROM videos_curtidas WHERE video_id = ? AND usuario_id = ?').get(videoId, userId);
+        const minhaCurtida = await db.prepare('SELECT id FROM videos_curtidas WHERE video_id = ? AND usuario_id = ?').get(videoId, userId);
         video.curti = !!minhaCurtida;
 
-        const comentarios = db.prepare(`
+        const comentarios = await db.prepare(`
             SELECT c.*, u.nome AS autor_nome, u.foto_perfil AS autor_foto, u.sexo AS autor_sexo
             FROM videos_comentarios c
             JOIN usuarios u ON u.id = c.usuario_id
@@ -3052,7 +3053,7 @@ app.get('/api/videos/:uid/:videoId', requireLogin, (req, res) => {
             ORDER BY c.criado_em ASC
         `).all(videoId);
 
-        const perfil = db.prepare('SELECT id, nome, foto_perfil, sexo FROM usuarios WHERE id = ?').get(uid);
+        const perfil = await db.prepare('SELECT id, nome, foto_perfil, sexo FROM usuarios WHERE id = ?').get(uid);
 
         return res.json({ success: true, video, comentarios, perfil, isOwner, myId: userId });
     } catch (err) {
@@ -3062,25 +3063,25 @@ app.get('/api/videos/:uid/:videoId', requireLogin, (req, res) => {
 });
 
 // Curtir/descurtir vídeo
-app.post('/api/videos/:id/curtir', requireLogin, (req, res) => {
+app.post('/api/videos/:id/curtir', requireLogin, async (req, res) => {
     try {
         const videoId = parseInt(req.params.id);
         const userId = req.session.userId;
 
-        const video = db.prepare('SELECT * FROM videos WHERE id = ?').get(videoId);
+        const video = await db.prepare('SELECT * FROM videos WHERE id = ?').get(videoId);
         if (!video) return res.json({ success: false, message: 'Vídeo não encontrado.' });
 
-        const existing = db.prepare('SELECT id FROM videos_curtidas WHERE video_id = ? AND usuario_id = ?').get(videoId, userId);
+        const existing = await db.prepare('SELECT id FROM videos_curtidas WHERE video_id = ? AND usuario_id = ?').get(videoId, userId);
         let liked;
         if (existing) {
-            db.prepare('DELETE FROM videos_curtidas WHERE id = ?').run(existing.id);
+            await db.prepare('DELETE FROM videos_curtidas WHERE id = ?').run(existing.id);
             liked = false;
         } else {
-            db.prepare(`INSERT INTO videos_curtidas (video_id, usuario_id, criado_em) VALUES (?, ?, ${agora()})`).run(videoId, userId);
+            await db.prepare(`INSERT INTO videos_curtidas (video_id, usuario_id, criado_em) VALUES (?, ?, ${agora()})`).run(videoId, userId);
             liked = true;
         }
 
-        const total = db.prepare('SELECT COUNT(*) AS c FROM videos_curtidas WHERE video_id = ?').get(videoId).c;
+        const total = (await db.prepare('SELECT COUNT(*) AS c FROM videos_curtidas WHERE video_id = ?').get(videoId)).c;
         return res.json({ success: true, liked, total });
     } catch (err) {
         console.error('Erro ao curtir vídeo:', err);
@@ -3089,7 +3090,7 @@ app.post('/api/videos/:id/curtir', requireLogin, (req, res) => {
 });
 
 // Comentar vídeo
-app.post('/api/videos/:id/comentar', requireLogin, (req, res) => {
+app.post('/api/videos/:id/comentar', requireLogin, async (req, res) => {
     try {
         const videoId = parseInt(req.params.id);
         const userId = req.session.userId;
@@ -3097,10 +3098,10 @@ app.post('/api/videos/:id/comentar', requireLogin, (req, res) => {
 
         if (!mensagem || !mensagem.trim()) return res.json({ success: false, message: 'Comentário vazio.' });
 
-        const video = db.prepare('SELECT * FROM videos WHERE id = ?').get(videoId);
+        const video = await db.prepare('SELECT * FROM videos WHERE id = ?').get(videoId);
         if (!video) return res.json({ success: false, message: 'Vídeo não encontrado.' });
 
-        db.prepare(`INSERT INTO videos_comentarios (video_id, usuario_id, mensagem, criado_em) VALUES (?, ?, ?, ${agora()})`).run(videoId, userId, mensagem.trim());
+        await db.prepare(`INSERT INTO videos_comentarios (video_id, usuario_id, mensagem, criado_em) VALUES (?, ?, ?, ${agora()})`).run(videoId, userId, mensagem.trim());
 
         return res.json({ success: true, message: 'Comentário enviado.' });
     } catch (err) {
@@ -3110,18 +3111,18 @@ app.post('/api/videos/:id/comentar', requireLogin, (req, res) => {
 });
 
 // Atualizar descrição do vídeo (owner only)
-app.put('/api/videos/:id/descricao', requireLogin, (req, res) => {
+app.put('/api/videos/:id/descricao', requireLogin, async (req, res) => {
     try {
         const videoId = parseInt(req.params.id);
         const userId = req.session.userId;
         const { descricao } = req.body;
 
-        const video = db.prepare('SELECT * FROM videos WHERE id = ?').get(videoId);
+        const video = await db.prepare('SELECT * FROM videos WHERE id = ?').get(videoId);
         if (!video) return res.json({ success: false, message: 'Vídeo não encontrado.' });
         if (video.usuario_id !== userId) return res.json({ success: false, message: 'Sem permissão.' });
 
         const desc = (descricao || '').trim().substring(0, 200);
-        db.prepare('UPDATE videos SET descricao = ? WHERE id = ?').run(desc, videoId);
+        await db.prepare('UPDATE videos SET descricao = ? WHERE id = ?').run(desc, videoId);
 
         return res.json({ success: true, message: 'Descrição atualizada.' });
     } catch (err) {
@@ -3131,18 +3132,18 @@ app.put('/api/videos/:id/descricao', requireLogin, (req, res) => {
 });
 
 // Deletar vídeo (owner only)
-app.delete('/api/videos/:id', requireLogin, (req, res) => {
+app.delete('/api/videos/:id', requireLogin, async (req, res) => {
     try {
         const videoId = parseInt(req.params.id);
         const userId = req.session.userId;
 
-        const video = db.prepare('SELECT * FROM videos WHERE id = ?').get(videoId);
+        const video = await db.prepare('SELECT * FROM videos WHERE id = ?').get(videoId);
         if (!video) return res.json({ success: false, message: 'Vídeo não encontrado.' });
         if (video.usuario_id !== userId) return res.json({ success: false, message: 'Sem permissão.' });
 
-        db.prepare('DELETE FROM videos_curtidas WHERE video_id = ?').run(videoId);
-        db.prepare('DELETE FROM videos_comentarios WHERE video_id = ?').run(videoId);
-        db.prepare('DELETE FROM videos WHERE id = ?').run(videoId);
+        await db.prepare('DELETE FROM videos_curtidas WHERE video_id = ?').run(videoId);
+        await db.prepare('DELETE FROM videos_comentarios WHERE video_id = ?').run(videoId);
+        await db.prepare('DELETE FROM videos WHERE id = ?').run(videoId);
 
         return res.json({ success: true, message: 'Vídeo removido.' });
     } catch (err) {
@@ -3154,9 +3155,9 @@ app.delete('/api/videos/:id', requireLogin, (req, res) => {
 // ===== API: Configurações / Privacidade =====
 
 // GET: Obter configurações atuais
-app.get('/api/configuracoes', requireLogin, (req, res) => {
+app.get('/api/configuracoes', requireLogin, async (req, res) => {
     try {
-        const user = db.prepare(`SELECT visitas_rastro, escrever_recado, escrever_depoimento,
+        const user = await db.prepare(`SELECT visitas_rastro, escrever_recado, escrever_depoimento,
             enviar_mensagem, mencionar, ver_recado, ver_foto, ver_video, ver_depoimento,
             ver_amigos, ver_comunidades, ver_social, ver_pessoal, ver_profissional,
             ver_online, votos, ver_comunidades_presenca, aparecer_pesquisa, conta_excluir_em
@@ -3169,7 +3170,7 @@ app.get('/api/configuracoes', requireLogin, (req, res) => {
 });
 
 // POST: Salvar configurações de privacidade
-app.post('/api/configuracoes/salvar', requireLogin, (req, res) => {
+app.post('/api/configuracoes/salvar', requireLogin, async (req, res) => {
     try {
         const camposPermitidos = [
             'visitas_rastro', 'escrever_recado', 'escrever_depoimento',
@@ -3193,11 +3194,11 @@ app.post('/api/configuracoes/salvar', requireLogin, (req, res) => {
         }
 
         values.push(req.session.userId);
-        db.prepare('UPDATE usuarios SET ' + sets.join(', ') + ' WHERE id = ?').run(...values);
+        await db.prepare('UPDATE usuarios SET ' + sets.join(', ') + ' WHERE id = ?').run(...values);
 
         // Se ativou modo fantasma, apagar todas as visitas feitas por este usuário
         if (req.body.visitas_rastro === 'nao') {
-            db.prepare('DELETE FROM visitas WHERE visitante_id = ?').run(req.session.userId);
+            await db.prepare('DELETE FROM visitas WHERE visitante_id = ?').run(req.session.userId);
         }
 
         return res.json({ success: true, message: 'Preferências salvas com sucesso!' });
@@ -3208,7 +3209,7 @@ app.post('/api/configuracoes/salvar', requireLogin, (req, res) => {
 });
 
 // POST: Alterar senha
-app.post('/api/configuracoes/alterar-senha', requireLogin, (req, res) => {
+app.post('/api/configuracoes/alterar-senha', requireLogin, async (req, res) => {
     try {
         const { senha_atual, nova_senha } = req.body;
         if (!senha_atual || !nova_senha) {
@@ -3218,7 +3219,7 @@ app.post('/api/configuracoes/alterar-senha', requireLogin, (req, res) => {
             return res.json({ success: false, message: 'A nova senha deve ter no mínimo 6 caracteres.' });
         }
 
-        const user = db.prepare('SELECT senha FROM usuarios WHERE id = ?').get(req.session.userId);
+        const user = await db.prepare('SELECT senha FROM usuarios WHERE id = ?').get(req.session.userId);
         if (!user) return res.json({ success: false, message: 'Usuário não encontrado.' });
 
         const senhaCorreta = bcrypt.compareSync(senha_atual, user.senha);
@@ -3227,7 +3228,7 @@ app.post('/api/configuracoes/alterar-senha', requireLogin, (req, res) => {
         }
 
         const novaHash = bcrypt.hashSync(nova_senha, 10);
-        db.prepare('UPDATE usuarios SET senha = ? WHERE id = ?').run(novaHash, req.session.userId);
+        await db.prepare('UPDATE usuarios SET senha = ? WHERE id = ?').run(novaHash, req.session.userId);
 
         return res.json({ success: true, message: 'Senha alterada com sucesso!' });
     } catch (err) {
@@ -3237,14 +3238,14 @@ app.post('/api/configuracoes/alterar-senha', requireLogin, (req, res) => {
 });
 
 // POST: Excluir conta (agenda exclusão em 24h)
-app.post('/api/configuracoes/excluir-conta', requireLogin, (req, res) => {
+app.post('/api/configuracoes/excluir-conta', requireLogin, async (req, res) => {
     try {
         const { senha } = req.body;
         if (!senha) {
             return res.json({ success: false, message: 'Digite sua senha para confirmar.' });
         }
 
-        const user = db.prepare('SELECT senha FROM usuarios WHERE id = ?').get(req.session.userId);
+        const user = await db.prepare('SELECT senha FROM usuarios WHERE id = ?').get(req.session.userId);
         if (!user) return res.json({ success: false, message: 'Usuário não encontrado.' });
 
         const senhaCorreta = bcrypt.compareSync(senha, user.senha);
@@ -3253,9 +3254,9 @@ app.post('/api/configuracoes/excluir-conta', requireLogin, (req, res) => {
         }
 
         // Agendar exclusão para 24h a partir de agora
-        db.prepare(`UPDATE usuarios SET conta_excluir_em = datetime(${agora()}, '+24 hours') WHERE id = ?`).run(req.session.userId);
+        await db.prepare(`UPDATE usuarios SET conta_excluir_em = datetime(${agora()}, '+24 hours') WHERE id = ?`).run(req.session.userId);
 
-        const row = db.prepare('SELECT conta_excluir_em FROM usuarios WHERE id = ?').get(req.session.userId);
+        const row = await db.prepare('SELECT conta_excluir_em FROM usuarios WHERE id = ?').get(req.session.userId);
         return res.json({ success: true, message: 'Exclusão agendada! Sua conta será removida permanentemente em 24 horas.', conta_excluir_em: row.conta_excluir_em });
     } catch (err) {
         console.error('Erro ao excluir conta:', err);
@@ -3264,14 +3265,14 @@ app.post('/api/configuracoes/excluir-conta', requireLogin, (req, res) => {
 });
 
 // POST: Cancelar exclusão de conta
-app.post('/api/configuracoes/cancelar-exclusao', requireLogin, (req, res) => {
+app.post('/api/configuracoes/cancelar-exclusao', requireLogin, async (req, res) => {
     try {
-        const user = db.prepare('SELECT conta_excluir_em FROM usuarios WHERE id = ?').get(req.session.userId);
+        const user = await db.prepare('SELECT conta_excluir_em FROM usuarios WHERE id = ?').get(req.session.userId);
         if (!user) return res.json({ success: false, message: 'Usuário não encontrado.' });
         if (!user.conta_excluir_em) {
             return res.json({ success: false, message: 'Não há exclusão agendada.' });
         }
-        db.prepare('UPDATE usuarios SET conta_excluir_em = NULL WHERE id = ?').run(req.session.userId);
+        await db.prepare('UPDATE usuarios SET conta_excluir_em = NULL WHERE id = ?').run(req.session.userId);
         return res.json({ success: true, message: 'Exclusão cancelada com sucesso!' });
     } catch (err) {
         console.error('Erro ao cancelar exclusão de conta:', err);
@@ -3282,7 +3283,7 @@ app.post('/api/configuracoes/cancelar-exclusao', requireLogin, (req, res) => {
 // ===== API: AMIZADES =====
 
 // Enviar solicitação de amizade
-app.post('/api/amizade/solicitar', requireLogin, (req, res) => {
+app.post('/api/amizade/solicitar', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { destinatario_id } = req.body;
@@ -3293,16 +3294,16 @@ app.post('/api/amizade/solicitar', requireLogin, (req, res) => {
         }
 
         // Verificar se o destinatário existe
-        const dest = db.prepare('SELECT id FROM usuarios WHERE id = ?').get(destId);
+        const dest = await db.prepare('SELECT id FROM usuarios WHERE id = ?').get(destId);
         if (!dest) return res.json({ success: false, message: 'Usuário não encontrado.' });
 
         // Verificar bloqueio
-        if (isBlocked(userId, destId)) {
+        if (await isBlocked(userId, destId)) {
             return res.json({ success: false, message: 'Não é possível enviar solicitação para este usuário.' });
         }
 
         // Verificar se já existe amizade ou solicitação (em qualquer direção)
-        const existente = db.prepare(`
+        const existente = await db.prepare(`
             SELECT * FROM amizades 
             WHERE (remetente_id = ? AND destinatario_id = ?) 
                OR (remetente_id = ? AND destinatario_id = ?)
@@ -3313,7 +3314,7 @@ app.post('/api/amizade/solicitar', requireLogin, (req, res) => {
             if (existente.status === 'pendente') return res.json({ success: false, message: 'Solicitação já enviada.' });
         }
 
-        db.prepare(`INSERT INTO amizades (remetente_id, destinatario_id, status, criado_em) VALUES (?, ?, 'pendente', ${agora()})`)
+        await db.prepare(`INSERT INTO amizades (remetente_id, destinatario_id, status, criado_em) VALUES (?, ?, 'pendente', ${agora()})`)
           .run(userId, destId);
 
         return res.json({ success: true, message: 'Solicitação de amizade enviada!' });
@@ -3324,16 +3325,16 @@ app.post('/api/amizade/solicitar', requireLogin, (req, res) => {
 });
 
 // Aceitar solicitação de amizade
-app.post('/api/amizade/aceitar', requireLogin, (req, res) => {
+app.post('/api/amizade/aceitar', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { request_id } = req.body;
         const reqId = parseInt(request_id);
 
-        const solicitacao = db.prepare('SELECT * FROM amizades WHERE id = ? AND destinatario_id = ? AND status = ?').get(reqId, userId, 'pendente');
+        const solicitacao = await db.prepare('SELECT * FROM amizades WHERE id = ? AND destinatario_id = ? AND status = ?').get(reqId, userId, 'pendente');
         if (!solicitacao) return res.json({ success: false, message: 'Solicitação não encontrada.' });
 
-        db.prepare(`UPDATE amizades SET status = 'aceita', aceito_em = ${agora()} WHERE id = ?`).run(reqId);
+        await db.prepare(`UPDATE amizades SET status = 'aceita', aceito_em = ${agora()} WHERE id = ?`).run(reqId);
 
         return res.json({ success: true, message: 'Amizade aceita!' });
     } catch(err) {
@@ -3343,16 +3344,16 @@ app.post('/api/amizade/aceitar', requireLogin, (req, res) => {
 });
 
 // Recusar solicitação de amizade
-app.post('/api/amizade/recusar', requireLogin, (req, res) => {
+app.post('/api/amizade/recusar', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { request_id } = req.body;
         const reqId = parseInt(request_id);
 
-        const solicitacao = db.prepare('SELECT * FROM amizades WHERE id = ? AND destinatario_id = ? AND status = ?').get(reqId, userId, 'pendente');
+        const solicitacao = await db.prepare('SELECT * FROM amizades WHERE id = ? AND destinatario_id = ? AND status = ?').get(reqId, userId, 'pendente');
         if (!solicitacao) return res.json({ success: false, message: 'Solicitação não encontrada.' });
 
-        db.prepare('DELETE FROM amizades WHERE id = ?').run(reqId);
+        await db.prepare('DELETE FROM amizades WHERE id = ?').run(reqId);
 
         return res.json({ success: true, message: 'Solicitação recusada.' });
     } catch(err) {
@@ -3362,13 +3363,13 @@ app.post('/api/amizade/recusar', requireLogin, (req, res) => {
 });
 
 // Desfazer amizade (remover amigo)
-app.post('/api/amizade/desfazer', requireLogin, (req, res) => {
+app.post('/api/amizade/desfazer', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { amigo_id } = req.body;
         const amigoId = String(amigo_id);
 
-        const result = db.prepare(`
+        const result = await db.prepare(`
             DELETE FROM amizades 
             WHERE status = 'aceita' AND (
                 (remetente_id = ? AND destinatario_id = ?) OR 
@@ -3386,13 +3387,13 @@ app.post('/api/amizade/desfazer', requireLogin, (req, res) => {
 });
 
 // Cancelar solicitação enviada
-app.post('/api/amizade/cancelar', requireLogin, (req, res) => {
+app.post('/api/amizade/cancelar', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { destinatario_id } = req.body;
         const destId = String(destinatario_id);
 
-        db.prepare(`DELETE FROM amizades WHERE remetente_id = ? AND destinatario_id = ? AND status = 'pendente'`).run(userId, destId);
+        await db.prepare(`DELETE FROM amizades WHERE remetente_id = ? AND destinatario_id = ? AND status = 'pendente'`).run(userId, destId);
 
         return res.json({ success: true, message: 'Solicitação cancelada.' });
     } catch(err) {
@@ -3402,13 +3403,13 @@ app.post('/api/amizade/cancelar', requireLogin, (req, res) => {
 });
 
 // Buscar amigos por nome (autocomplete para @menções)
-app.get('/api/amigos/buscar', requireLogin, (req, res) => {
+app.get('/api/amigos/buscar', requireLogin, async (req, res) => {
     try {
         const meId = req.session.userId;
         const q = (req.query.q || '').trim().toLowerCase();
         if (!q || q.length < 1) return res.json({ success: true, amigos: [] });
 
-        const amigos = db.prepare(`
+        const amigos = await db.prepare(`
             SELECT u.id, u.nome, u.foto_perfil, u.sexo
             FROM amizades a
             JOIN usuarios u ON (
@@ -3431,13 +3432,13 @@ app.get('/api/amigos/buscar', requireLogin, (req, res) => {
 });
 
 // Listar amigos de um usuário
-app.get('/api/amigos/:uid', requireLogin, (req, res) => {
+app.get('/api/amigos/:uid', requireLogin, async (req, res) => {
     try {
         const uid = req.params.uid;
         const meId = req.session.userId;
         if (!uid) return res.json({ success: false, message: 'ID inválido.' });
 
-        const amigos = db.prepare(`
+        const amigos = await db.prepare(`
             SELECT u.id, u.nome, u.foto_perfil, u.sexo, u.cidade, u.estado, u.status_texto,
                    a.aceito_em,
                    COALESCE(av.estrelas, 0) AS estrelas
@@ -3458,7 +3459,7 @@ app.get('/api/amigos/:uid', requireLogin, (req, res) => {
         const isOwn = uid === meId;
         if (!isOwn) {
             const myFriendIds = new Set(
-                db.prepare(`SELECT CASE WHEN remetente_id = ? THEN destinatario_id ELSE remetente_id END AS fid FROM amizades WHERE status = 'aceita' AND (remetente_id = ? OR destinatario_id = ?)`).all(meId, meId, meId).map(r => r.fid)
+                (await db.prepare(`SELECT CASE WHEN remetente_id = ? THEN destinatario_id ELSE remetente_id END AS fid FROM amizades WHERE status = 'aceita' AND (remetente_id = ? OR destinatario_id = ?)`).all(meId, meId, meId)).map(r => r.fid)
             );
             amigos.forEach(a => { a.em_comum = myFriendIds.has(a.id) ? 1 : 0; });
         }
@@ -3471,7 +3472,7 @@ app.get('/api/amigos/:uid', requireLogin, (req, res) => {
 });
 
 // Avaliar amigo (estrelas)
-app.post('/api/amigos/avaliar', requireLogin, (req, res) => {
+app.post('/api/amigos/avaliar', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { amigo_id, estrelas } = req.body;
@@ -3480,10 +3481,10 @@ app.post('/api/amigos/avaliar', requireLogin, (req, res) => {
         if (!amigoId || stars < 1 || stars > 5) return res.json({ success: false, message: 'Dados inválidos.' });
 
         // Verify they are friends
-        const friendship = db.prepare(`SELECT id FROM amizades WHERE status = 'aceita' AND ((remetente_id = ? AND destinatario_id = ?) OR (remetente_id = ? AND destinatario_id = ?))`).get(userId, amigoId, amigoId, userId);
+        const friendship = await db.prepare(`SELECT id FROM amizades WHERE status = 'aceita' AND ((remetente_id = ? AND destinatario_id = ?) OR (remetente_id = ? AND destinatario_id = ?))`).get(userId, amigoId, amigoId, userId);
         if (!friendship) return res.json({ success: false, message: 'Vocês não são amigos.' });
 
-        db.prepare(`INSERT INTO avaliacoes_amigos (avaliador_id, avaliado_id, estrelas) VALUES (?, ?, ?) ON CONFLICT(avaliador_id, avaliado_id) DO UPDATE SET estrelas = ?`).run(userId, amigoId, stars, stars);
+        await db.prepare(`INSERT INTO avaliacoes_amigos (avaliador_id, avaliado_id, estrelas) VALUES (?, ?, ?) ON CONFLICT(avaliador_id, avaliado_id) DO UPDATE SET estrelas = ?`).run(userId, amigoId, stars, stars);
 
         return res.json({ success: true, message: 'Avaliação salva!' });
     } catch(err) {
@@ -3494,7 +3495,7 @@ app.post('/api/amigos/avaliar', requireLogin, (req, res) => {
 
 // ===== FÃS =====
 // Virar fã / deixar de ser fã (toggle)
-app.post('/api/fas/toggle', requireLogin, (req, res) => {
+app.post('/api/fas/toggle', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { usuario_id } = req.body;
@@ -3503,14 +3504,14 @@ app.post('/api/fas/toggle', requireLogin, (req, res) => {
         if (targetId === userId) return res.json({ success: false, message: 'Você não pode ser fã de si mesmo.' });
 
         // Check if already a fan
-        const existing = db.prepare('SELECT id FROM fas WHERE fa_id = ? AND usuario_id = ?').get(userId, targetId);
+        const existing = await db.prepare('SELECT id FROM fas WHERE fa_id = ? AND usuario_id = ?').get(userId, targetId);
         if (existing) {
-            db.prepare('DELETE FROM fas WHERE id = ?').run(existing.id);
-            const count = db.prepare('SELECT COUNT(*) as total FROM fas WHERE usuario_id = ?').get(targetId).total;
+            await db.prepare('DELETE FROM fas WHERE id = ?').run(existing.id);
+            const count = (await db.prepare('SELECT COUNT(*) as total FROM fas WHERE usuario_id = ?').get(targetId)).total;
             return res.json({ success: true, isFan: false, count, message: 'Você deixou de ser fã.' });
         } else {
-            db.prepare('INSERT INTO fas (fa_id, usuario_id) VALUES (?, ?)').run(userId, targetId);
-            const count = db.prepare('SELECT COUNT(*) as total FROM fas WHERE usuario_id = ?').get(targetId).total;
+            await db.prepare('INSERT INTO fas (fa_id, usuario_id) VALUES (?, ?)').run(userId, targetId);
+            const count = (await db.prepare('SELECT COUNT(*) as total FROM fas WHERE usuario_id = ?').get(targetId)).total;
             return res.json({ success: true, isFan: true, count, message: 'Você agora é fã!' });
         }
     } catch(err) {
@@ -3520,12 +3521,12 @@ app.post('/api/fas/toggle', requireLogin, (req, res) => {
 });
 
 // Obter contagem de fãs e se o usuário logado é fã
-app.get('/api/fas/:uid', requireLogin, (req, res) => {
+app.get('/api/fas/:uid', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const targetId = String(req.params.uid);
-        const count = db.prepare('SELECT COUNT(*) as total FROM fas WHERE usuario_id = ?').get(targetId).total;
-        const isFan = !!db.prepare('SELECT id FROM fas WHERE fa_id = ? AND usuario_id = ?').get(userId, targetId);
+        const count = (await db.prepare('SELECT COUNT(*) as total FROM fas WHERE usuario_id = ?').get(targetId)).total;
+        const isFan = !!await db.prepare('SELECT id FROM fas WHERE fa_id = ? AND usuario_id = ?').get(userId, targetId);
         return res.json({ success: true, count, isFan });
     } catch(err) {
         console.error('Erro ao buscar fãs:', err);
@@ -3535,7 +3536,7 @@ app.get('/api/fas/:uid', requireLogin, (req, res) => {
 
 // ===== AVALIAÇÕES DE PERFIL (confiável, legal, sexy) =====
 // Avaliar perfil
-app.post('/api/avaliacoes-perfil', requireLogin, (req, res) => {
+app.post('/api/avaliacoes-perfil', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { usuario_id, categoria, nota } = req.body;
@@ -3548,14 +3549,14 @@ app.post('/api/avaliacoes-perfil', requireLogin, (req, res) => {
         if (!['confiavel', 'legal', 'sexy'].includes(cat)) return res.json({ success: false, message: 'Categoria inválida.' });
         if (rating < 1 || rating > 5 || isNaN(rating)) return res.json({ success: false, message: 'Nota deve ser de 1 a 5.' });
 
-        db.prepare(`INSERT INTO avaliacoes_perfil (avaliador_id, avaliado_id, categoria, nota)
+        await db.prepare(`INSERT INTO avaliacoes_perfil (avaliador_id, avaliado_id, categoria, nota)
             VALUES (?, ?, ?, ?)
             ON CONFLICT(avaliador_id, avaliado_id, categoria) DO UPDATE SET nota = ?, criado_em = datetime('now','-3 hours')`
         ).run(userId, targetId, cat, rating, rating);
 
         // Return updated average
-        const avg = db.prepare('SELECT AVG(nota) as media, COUNT(*) as total FROM avaliacoes_perfil WHERE avaliado_id = ? AND categoria = ?').get(targetId, cat);
-        const myRating = db.prepare('SELECT nota FROM avaliacoes_perfil WHERE avaliador_id = ? AND avaliado_id = ? AND categoria = ?').get(userId, targetId, cat);
+        const avg = await db.prepare('SELECT AVG(nota) as media, COUNT(*) as total FROM avaliacoes_perfil WHERE avaliado_id = ? AND categoria = ?').get(targetId, cat);
+        const myRating = await db.prepare('SELECT nota FROM avaliacoes_perfil WHERE avaliador_id = ? AND avaliado_id = ? AND categoria = ?').get(userId, targetId, cat);
 
         return res.json({
             success: true,
@@ -3571,7 +3572,7 @@ app.post('/api/avaliacoes-perfil', requireLogin, (req, res) => {
 });
 
 // Obter médias de avaliação de um perfil
-app.get('/api/avaliacoes-perfil/:uid', requireLogin, (req, res) => {
+app.get('/api/avaliacoes-perfil/:uid', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const targetId = String(req.params.uid);
@@ -3579,8 +3580,8 @@ app.get('/api/avaliacoes-perfil/:uid', requireLogin, (req, res) => {
         const result = {};
 
         for (const cat of categorias) {
-            const avg = db.prepare('SELECT AVG(nota) as media, COUNT(*) as total FROM avaliacoes_perfil WHERE avaliado_id = ? AND categoria = ?').get(targetId, cat);
-            const myRating = db.prepare('SELECT nota FROM avaliacoes_perfil WHERE avaliador_id = ? AND avaliado_id = ? AND categoria = ?').get(userId, targetId, cat);
+            const avg = await db.prepare('SELECT AVG(nota) as media, COUNT(*) as total FROM avaliacoes_perfil WHERE avaliado_id = ? AND categoria = ?').get(targetId, cat);
+            const myRating = await db.prepare('SELECT nota FROM avaliacoes_perfil WHERE avaliador_id = ? AND avaliado_id = ? AND categoria = ?').get(userId, targetId, cat);
             result[cat] = {
                 media: avg.media ? Math.round(avg.media * 10) / 10 : 0,
                 total: avg.total || 0,
@@ -3596,11 +3597,11 @@ app.get('/api/avaliacoes-perfil/:uid', requireLogin, (req, res) => {
 });
 
 // Listar solicitações pendentes (recebidas)
-app.get('/api/amizade/pendentes', requireLogin, (req, res) => {
+app.get('/api/amizade/pendentes', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
 
-        const pendentes = db.prepare(`
+        const pendentes = await db.prepare(`
             SELECT a.id AS request_id, a.remetente_id, a.criado_em,
                    u.nome, u.foto_perfil, u.sexo, u.cidade, u.estado
             FROM amizades a
@@ -3618,13 +3619,13 @@ app.get('/api/amizade/pendentes', requireLogin, (req, res) => {
 });
 
 // Verificar status de amizade com outro usuário
-app.get('/api/amizade/status/:uid', requireLogin, (req, res) => {
+app.get('/api/amizade/status/:uid', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const uid = req.params.uid;
         if (!uid || uid === userId) return res.json({ success: true, status: 'self' });
 
-        const amizade = db.prepare(`
+        const amizade = await db.prepare(`
             SELECT * FROM amizades 
             WHERE (remetente_id = ? AND destinatario_id = ?) 
                OR (remetente_id = ? AND destinatario_id = ?)
@@ -3649,7 +3650,7 @@ app.get('/api/amizade/status/:uid', requireLogin, (req, res) => {
 // ===== API: Bloqueios =====
 
 // Bloquear usuário
-app.post('/api/bloquear', requireLogin, (req, res) => {
+app.post('/api/bloquear', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { bloqueado_id } = req.body;
@@ -3659,18 +3660,18 @@ app.post('/api/bloquear', requireLogin, (req, res) => {
             return res.json({ success: false, message: 'Operação inválida.' });
         }
 
-        const dest = db.prepare('SELECT id FROM usuarios WHERE id = ?').get(bloqId);
+        const dest = await db.prepare('SELECT id FROM usuarios WHERE id = ?').get(bloqId);
         if (!dest) return res.json({ success: false, message: 'Usuário não encontrado.' });
 
         // Verificar se já está bloqueado
-        const existing = db.prepare('SELECT id FROM bloqueios WHERE bloqueador_id = ? AND bloqueado_id = ?').get(userId, bloqId);
+        const existing = await db.prepare('SELECT id FROM bloqueios WHERE bloqueador_id = ? AND bloqueado_id = ?').get(userId, bloqId);
         if (existing) return res.json({ success: false, message: 'Usuário já está bloqueado.' });
 
         // Inserir bloqueio
-        db.prepare(`INSERT INTO bloqueios (bloqueador_id, bloqueado_id, criado_em) VALUES (?, ?, ${agora()})`).run(userId, bloqId);
+        await db.prepare(`INSERT INTO bloqueios (bloqueador_id, bloqueado_id, criado_em) VALUES (?, ?, ${agora()})`).run(userId, bloqId);
 
         // Desfazer amizade se existir (em qualquer direção)
-        db.prepare(`DELETE FROM amizades WHERE (remetente_id = ? AND destinatario_id = ?) OR (remetente_id = ? AND destinatario_id = ?)`).run(userId, bloqId, bloqId, userId);
+        await db.prepare(`DELETE FROM amizades WHERE (remetente_id = ? AND destinatario_id = ?) OR (remetente_id = ? AND destinatario_id = ?)`).run(userId, bloqId, bloqId, userId);
 
         return res.json({ success: true, message: 'Usuário bloqueado com sucesso.' });
     } catch(err) {
@@ -3680,7 +3681,7 @@ app.post('/api/bloquear', requireLogin, (req, res) => {
 });
 
 // Desbloquear usuário
-app.post('/api/desbloquear', requireLogin, (req, res) => {
+app.post('/api/desbloquear', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { bloqueado_id } = req.body;
@@ -3688,7 +3689,7 @@ app.post('/api/desbloquear', requireLogin, (req, res) => {
 
         if (!bloqId) return res.json({ success: false, message: 'Operação inválida.' });
 
-        const result = db.prepare('DELETE FROM bloqueios WHERE bloqueador_id = ? AND bloqueado_id = ?').run(userId, bloqId);
+        const result = await db.prepare('DELETE FROM bloqueios WHERE bloqueador_id = ? AND bloqueado_id = ?').run(userId, bloqId);
         if (result.changes === 0) return res.json({ success: false, message: 'Usuário não está bloqueado.' });
 
         return res.json({ success: true, message: 'Usuário desbloqueado com sucesso.' });
@@ -3699,11 +3700,11 @@ app.post('/api/desbloquear', requireLogin, (req, res) => {
 });
 
 // Listar bloqueados
-app.get('/api/bloqueados', requireLogin, (req, res) => {
+app.get('/api/bloqueados', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
 
-        const bloqueados = db.prepare(`
+        const bloqueados = await db.prepare(`
             SELECT b.id, b.criado_em, u.id AS user_id, u.nome, u.foto_perfil, u.sexo
             FROM bloqueios b
             JOIN usuarios u ON u.id = b.bloqueado_id
@@ -3719,16 +3720,16 @@ app.get('/api/bloqueados', requireLogin, (req, res) => {
 });
 
 // Verificar se está bloqueado
-app.get('/api/bloqueio/status/:uid', requireLogin, (req, res) => {
+app.get('/api/bloqueio/status/:uid', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const uid = req.params.uid;
         if (!uid) return res.json({ success: true, blocked: false });
 
         // Eu bloqueei ele?
-        const euBloqueei = db.prepare('SELECT id FROM bloqueios WHERE bloqueador_id = ? AND bloqueado_id = ?').get(userId, uid);
+        const euBloqueei = await db.prepare('SELECT id FROM bloqueios WHERE bloqueador_id = ? AND bloqueado_id = ?').get(userId, uid);
         // Ele me bloqueou?
-        const eleBloqueou = db.prepare('SELECT id FROM bloqueios WHERE bloqueador_id = ? AND bloqueado_id = ?').get(uid, userId);
+        const eleBloqueou = await db.prepare('SELECT id FROM bloqueios WHERE bloqueador_id = ? AND bloqueado_id = ?').get(uid, userId);
 
         return res.json({
             success: true,
@@ -3751,7 +3752,7 @@ function requireAdmin(req, res, next) {
         if (req.path.startsWith('/api/')) return res.status(401).json({ success: false, message: 'Não autorizado.' });
         return res.redirect('/index.php');
     }
-    const user = db.prepare('SELECT is_admin FROM usuarios WHERE id = ?').get(req.session.userId);
+    const user = await db.prepare('SELECT is_admin FROM usuarios WHERE id = ?').get(req.session.userId);
     if (!user || !user.is_admin) {
         if (req.path.startsWith('/api/')) return res.status(403).json({ success: false, message: 'Acesso negado.' });
         return res.redirect('/profile.php');
@@ -3760,37 +3761,37 @@ function requireAdmin(req, res, next) {
 }
 
 // Página admin
-app.get('/admin.php', requireAdmin, (req, res) => {
+app.get('/admin.php', requireAdmin, async (req, res) => {
     sendPhp(res, 'admin.php');
 });
 
 // API: Dashboard stats
-app.get('/api/admin/stats', requireAdmin, (req, res) => {
+app.get('/api/admin/stats', requireAdmin, async (req, res) => {
     try {
-        const totalUsuarios = db.prepare('SELECT COUNT(*) as c FROM usuarios').get().c;
+        const totalUsuarios = (await db.prepare('SELECT COUNT(*) as c FROM usuarios').get()).c;
         const hojeBR = agora().split(' ')[0];
-        const novosHoje = db.prepare("SELECT COUNT(*) as c FROM usuarios WHERE criado_em LIKE ?").get(hojeBR + '%').c;
-        const totalRecados = db.prepare('SELECT COUNT(*) as c FROM recados').get().c;
-        const totalMensagens = db.prepare('SELECT COUNT(*) as c FROM mensagens').get().c;
-        const totalDepoimentos = db.prepare('SELECT COUNT(*) as c FROM depoimentos').get().c;
-        const totalAmizades = db.prepare("SELECT COUNT(*) as c FROM amizades WHERE status = 'aceita'").get().c;
-        const totalFotos = db.prepare('SELECT COUNT(*) as c FROM fotos').get().c;
-        const totalVideos = db.prepare('SELECT COUNT(*) as c FROM videos').get().c;
-        const totalVisitas = db.prepare('SELECT COUNT(*) as c FROM visitas').get().c;
-        const convitesUsados = db.prepare('SELECT COUNT(*) as c FROM convites WHERE usado = 1').get().c;
-        const convitesDisponiveis = db.prepare('SELECT COUNT(*) as c FROM convites WHERE usado = 0').get().c;
+        const novosHoje = (await db.prepare("SELECT COUNT(*) as c FROM usuarios WHERE criado_em LIKE ?").get(hojeBR + '%')).c;
+        const totalRecados = (await db.prepare('SELECT COUNT(*) as c FROM recados').get()).c;
+        const totalMensagens = (await db.prepare('SELECT COUNT(*) as c FROM mensagens').get()).c;
+        const totalDepoimentos = (await db.prepare('SELECT COUNT(*) as c FROM depoimentos').get()).c;
+        const totalAmizades = (await db.prepare("SELECT COUNT(*) as c FROM amizades WHERE status = 'aceita'").get()).c;
+        const totalFotos = (await db.prepare('SELECT COUNT(*) as c FROM fotos').get()).c;
+        const totalVideos = (await db.prepare('SELECT COUNT(*) as c FROM videos').get()).c;
+        const totalVisitas = (await db.prepare('SELECT COUNT(*) as c FROM visitas').get()).c;
+        const convitesUsados = (await db.prepare('SELECT COUNT(*) as c FROM convites WHERE usado = 1').get()).c;
+        const convitesDisponiveis = (await db.prepare('SELECT COUNT(*) as c FROM convites WHERE usado = 0').get()).c;
         const totalConvites = convitesUsados + convitesDisponiveis;
-        const totalDenuncias = db.prepare('SELECT COUNT(*) as c FROM denuncias').get().c;
-        const denunciasPendentes = db.prepare("SELECT COUNT(*) as c FROM denuncias WHERE status = 'pendente'").get().c;
-        const totalSugestoes = db.prepare('SELECT COUNT(*) as c FROM sugestoes').get().c;
-        const sugestoesNovas = db.prepare("SELECT COUNT(*) as c FROM sugestoes WHERE status = 'nova'").get().c;
-        const totalBugs = db.prepare('SELECT COUNT(*) as c FROM bugs').get().c;
-        const bugsNovos = db.prepare("SELECT COUNT(*) as c FROM bugs WHERE status = 'novo'").get().c;
-        const totalDenunciasComunidades = db.prepare('SELECT COUNT(*) as c FROM denuncias_comunidades').get().c;
-        const denunciasComunidadesPendentes = db.prepare("SELECT COUNT(*) as c FROM denuncias_comunidades WHERE status = 'pendente'").get().c;
+        const totalDenuncias = (await db.prepare('SELECT COUNT(*) as c FROM denuncias').get()).c;
+        const denunciasPendentes = (await db.prepare("SELECT COUNT(*) as c FROM denuncias WHERE status = 'pendente'").get()).c;
+        const totalSugestoes = (await db.prepare('SELECT COUNT(*) as c FROM sugestoes').get()).c;
+        const sugestoesNovas = (await db.prepare("SELECT COUNT(*) as c FROM sugestoes WHERE status = 'nova'").get()).c;
+        const totalBugs = (await db.prepare('SELECT COUNT(*) as c FROM bugs').get()).c;
+        const bugsNovos = (await db.prepare("SELECT COUNT(*) as c FROM bugs WHERE status = 'novo'").get()).c;
+        const totalDenunciasComunidades = (await db.prepare('SELECT COUNT(*) as c FROM denuncias_comunidades').get()).c;
+        const denunciasComunidadesPendentes = (await db.prepare("SELECT COUNT(*) as c FROM denuncias_comunidades WHERE status = 'pendente'").get()).c;
 
         // Usuários recentes (últimos 10)
-        const recentes = db.prepare('SELECT id, nome, email, criado_em, ultimo_acesso FROM usuarios ORDER BY id DESC LIMIT 10').all();
+        const recentes = await db.prepare('SELECT id, nome, email, criado_em, ultimo_acesso FROM usuarios ORDER BY id DESC LIMIT 10').all();
 
         res.json({
             success: true,
@@ -3811,7 +3812,7 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
 });
 
 // API: Listar usuários (com busca e paginação)
-app.get('/api/admin/usuarios', requireAdmin, (req, res) => {
+app.get('/api/admin/usuarios', requireAdmin, async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = 20;
@@ -3825,8 +3826,8 @@ app.get('/api/admin/usuarios', requireAdmin, (req, res) => {
             params = ['%' + busca + '%', '%' + busca + '%', busca];
         }
 
-        const total = db.prepare('SELECT COUNT(*) as c FROM usuarios ' + where).get(...params).c;
-        const usuarios = db.prepare(
+        const total = (await db.prepare('SELECT COUNT(*) as c FROM usuarios ' + where).get(...params)).c;
+        const usuarios = await db.prepare(
             'SELECT id, nome, email, sexo, foto_perfil, criado_em, ultimo_acesso, is_admin, conta_excluir_em, banido, banido_permanente, banido_ate, banido_motivo, banido_em FROM usuarios ' +
             where + ' ORDER BY id DESC LIMIT ? OFFSET ?'
         ).all(...params, limit, offset);
@@ -3839,17 +3840,17 @@ app.get('/api/admin/usuarios', requireAdmin, (req, res) => {
 });
 
 // API: Detalhes de um usuário
-app.get('/api/admin/usuario/:id', requireAdmin, (req, res) => {
+app.get('/api/admin/usuario/:id', requireAdmin, async (req, res) => {
     try {
         const uid = req.params.id;
-        const user = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(uid);
+        const user = await db.prepare('SELECT * FROM usuarios WHERE id = ?').get(uid);
         if (!user) return res.json({ success: false, message: 'Usuário não encontrado.' });
 
-        const totalAmigos = db.prepare("SELECT COUNT(*) as c FROM amizades WHERE status = 'aceita' AND (remetente_id = ? OR destinatario_id = ?)").get(uid, uid).c;
-        const totalRecados = db.prepare('SELECT COUNT(*) as c FROM recados WHERE destinatario_id = ?').get(uid).c;
-        const totalFotos = db.prepare('SELECT COUNT(*) as c FROM fotos WHERE usuario_id = ?').get(uid).c;
-        const totalVideos = db.prepare('SELECT COUNT(*) as c FROM videos WHERE usuario_id = ?').get(uid).c;
-        const convitesGerados = db.prepare('SELECT COUNT(*) as c FROM convites WHERE criado_por = ?').get(uid).c;
+        const totalAmigos = (await db.prepare("SELECT COUNT(*) as c FROM amizades WHERE status = 'aceita' AND (remetente_id = ? OR destinatario_id = ?)").get(uid, uid)).c;
+        const totalRecados = (await db.prepare('SELECT COUNT(*) as c FROM recados WHERE destinatario_id = ?').get(uid)).c;
+        const totalFotos = (await db.prepare('SELECT COUNT(*) as c FROM fotos WHERE usuario_id = ?').get(uid)).c;
+        const totalVideos = (await db.prepare('SELECT COUNT(*) as c FROM videos WHERE usuario_id = ?').get(uid)).c;
+        const convitesGerados = (await db.prepare('SELECT COUNT(*) as c FROM convites WHERE criado_por = ?').get(uid)).c;
 
         // Remove senha do retorno
         delete user.senha;
@@ -3862,15 +3863,15 @@ app.get('/api/admin/usuario/:id', requireAdmin, (req, res) => {
 });
 
 // API: Editar usuário (admin)
-app.post('/api/admin/usuario/editar', requireAdmin, (req, res) => {
+app.post('/api/admin/usuario/editar', requireAdmin, async (req, res) => {
     try {
         const { id, nome, email, sexo, is_admin } = req.body;
         if (!id) return res.json({ success: false, message: 'ID obrigatório.' });
 
-        const user = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(id);
+        const user = await db.prepare('SELECT * FROM usuarios WHERE id = ?').get(id);
         if (!user) return res.json({ success: false, message: 'Usuário não encontrado.' });
 
-        db.prepare('UPDATE usuarios SET nome = ?, email = ?, sexo = ?, is_admin = ? WHERE id = ?')
+        await db.prepare('UPDATE usuarios SET nome = ?, email = ?, sexo = ?, is_admin = ? WHERE id = ?')
           .run(nome || user.nome, email || user.email, sexo || user.sexo, is_admin !== undefined ? is_admin : user.is_admin, id);
 
         res.json({ success: true, message: 'Usuário atualizado.' });
@@ -3881,28 +3882,28 @@ app.post('/api/admin/usuario/editar', requireAdmin, (req, res) => {
 });
 
 // API: Excluir usuário (admin)
-app.post('/api/admin/usuario/excluir', requireAdmin, (req, res) => {
+app.post('/api/admin/usuario/excluir', requireAdmin, async (req, res) => {
     try {
         const { id } = req.body;
         if (!id) return res.json({ success: false, message: 'ID obrigatório.' });
         if (id === req.session.userId) return res.json({ success: false, message: 'Não é possível excluir a si mesmo.' });
 
-        const user = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(id);
+        const user = await db.prepare('SELECT * FROM usuarios WHERE id = ?').get(id);
         if (!user) return res.json({ success: false, message: 'Usuário não encontrado.' });
 
         // Excluir dados relacionados
-        db.prepare('DELETE FROM recados WHERE remetente_id = ? OR destinatario_id = ?').run(id, id);
-        db.prepare('DELETE FROM mensagens WHERE remetente_id = ? OR destinatario_id = ?').run(id, id);
-        db.prepare('DELETE FROM depoimentos WHERE remetente_id = ? OR destinatario_id = ?').run(id, id);
-        db.prepare('DELETE FROM amizades WHERE remetente_id = ? OR destinatario_id = ?').run(id, id);
-        db.prepare('DELETE FROM visitas WHERE visitante_id = ? OR visitado_id = ?').run(id, id);
-        db.prepare('DELETE FROM fotos_comentarios WHERE usuario_id = ?').run(id);
-        db.prepare('DELETE FROM fotos_curtidas WHERE usuario_id = ?').run(id);
-        db.prepare('DELETE FROM fotos WHERE usuario_id = ?').run(id);
-        db.prepare('DELETE FROM videos_comentarios WHERE usuario_id = ?').run(id);
-        db.prepare('DELETE FROM videos_curtidas WHERE usuario_id = ?').run(id);
-        db.prepare('DELETE FROM videos WHERE usuario_id = ?').run(id);
-        db.prepare('DELETE FROM usuarios WHERE id = ?').run(id);
+        await db.prepare('DELETE FROM recados WHERE remetente_id = ? OR destinatario_id = ?').run(id, id);
+        await db.prepare('DELETE FROM mensagens WHERE remetente_id = ? OR destinatario_id = ?').run(id, id);
+        await db.prepare('DELETE FROM depoimentos WHERE remetente_id = ? OR destinatario_id = ?').run(id, id);
+        await db.prepare('DELETE FROM amizades WHERE remetente_id = ? OR destinatario_id = ?').run(id, id);
+        await db.prepare('DELETE FROM visitas WHERE visitante_id = ? OR visitado_id = ?').run(id, id);
+        await db.prepare('DELETE FROM fotos_comentarios WHERE usuario_id = ?').run(id);
+        await db.prepare('DELETE FROM fotos_curtidas WHERE usuario_id = ?').run(id);
+        await db.prepare('DELETE FROM fotos WHERE usuario_id = ?').run(id);
+        await db.prepare('DELETE FROM videos_comentarios WHERE usuario_id = ?').run(id);
+        await db.prepare('DELETE FROM videos_curtidas WHERE usuario_id = ?').run(id);
+        await db.prepare('DELETE FROM videos WHERE usuario_id = ?').run(id);
+        await db.prepare('DELETE FROM usuarios WHERE id = ?').run(id);
 
         res.json({ success: true, message: 'Usuário excluído com sucesso.' });
     } catch(err) {
@@ -3918,7 +3919,7 @@ app.post('/api/admin/usuario/resetar-senha', requireAdmin, async (req, res) => {
         if (!id || !novaSenha) return res.json({ success: false, message: 'ID e nova senha obrigatórios.' });
 
         const hash = await bcrypt.hash(novaSenha, 10);
-        db.prepare('UPDATE usuarios SET senha = ? WHERE id = ?').run(hash, id);
+        await db.prepare('UPDATE usuarios SET senha = ? WHERE id = ?').run(hash, id);
 
         res.json({ success: true, message: 'Senha resetada com sucesso.' });
     } catch(err) {
@@ -3928,22 +3929,22 @@ app.post('/api/admin/usuario/resetar-senha', requireAdmin, async (req, res) => {
 });
 
 // API: Banir usuário (admin)
-app.post('/api/admin/usuario/banir', requireAdmin, (req, res) => {
+app.post('/api/admin/usuario/banir', requireAdmin, async (req, res) => {
     try {
         const { id, tipo, dias, motivo } = req.body;
         if (!id) return res.json({ success: false, message: 'ID obrigatório.' });
         if (id === req.session.userId) return res.json({ success: false, message: 'Não é possível banir a si mesmo.' });
 
-        const user = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(id);
+        const user = await db.prepare('SELECT * FROM usuarios WHERE id = ?').get(id);
         if (!user) return res.json({ success: false, message: 'Usuário não encontrado.' });
         if (user.is_admin) return res.json({ success: false, message: 'Não é possível banir um administrador.' });
 
         if (tipo === 'permanente') {
-            db.prepare(`UPDATE usuarios SET banido = 1, banido_permanente = 1, banido_ate = NULL, banido_motivo = ?, banido_por = ?, banido_em = ${agora()} WHERE id = ?`)
+            await db.prepare(`UPDATE usuarios SET banido = 1, banido_permanente = 1, banido_ate = NULL, banido_motivo = ?, banido_por = ?, banido_em = ${agora()} WHERE id = ?`)
               .run(motivo || null, req.session.userId, id);
         } else {
             const numDias = parseInt(dias) || 1;
-            db.prepare(`UPDATE usuarios SET banido = 1, banido_permanente = 0, banido_ate = datetime('now','-3 hours','+${numDias} days'), banido_motivo = ?, banido_por = ?, banido_em = ${agora()} WHERE id = ?`)
+            await db.prepare(`UPDATE usuarios SET banido = 1, banido_permanente = 0, banido_ate = datetime('now','-3 hours','+${numDias} days'), banido_motivo = ?, banido_por = ?, banido_em = ${agora()} WHERE id = ?`)
               .run(motivo || null, req.session.userId, id);
         }
 
@@ -3955,12 +3956,12 @@ app.post('/api/admin/usuario/banir', requireAdmin, (req, res) => {
 });
 
 // API: Desbanir usuário (admin)
-app.post('/api/admin/usuario/desbanir', requireAdmin, (req, res) => {
+app.post('/api/admin/usuario/desbanir', requireAdmin, async (req, res) => {
     try {
         const { id } = req.body;
         if (!id) return res.json({ success: false, message: 'ID obrigatório.' });
 
-        db.prepare('UPDATE usuarios SET banido = 0, banido_permanente = 0, banido_ate = NULL, banido_motivo = NULL, banido_por = NULL, banido_em = NULL WHERE id = ?').run(id);
+        await db.prepare('UPDATE usuarios SET banido = 0, banido_permanente = 0, banido_ate = NULL, banido_motivo = NULL, banido_por = NULL, banido_em = NULL WHERE id = ?').run(id);
 
         res.json({ success: true, message: 'Usuário desbanido com sucesso.' });
     } catch(err) {
@@ -3970,7 +3971,7 @@ app.post('/api/admin/usuario/desbanir', requireAdmin, (req, res) => {
 });
 
 // API: Listar convites
-app.get('/api/admin/convites', requireAdmin, (req, res) => {
+app.get('/api/admin/convites', requireAdmin, async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = 20;
@@ -3981,8 +3982,8 @@ app.get('/api/admin/convites', requireAdmin, (req, res) => {
         if (filtro === 'usados') where = 'WHERE c.usado = 1';
         else if (filtro === 'disponiveis') where = 'WHERE c.usado = 0';
 
-        const total = db.prepare('SELECT COUNT(*) as cnt FROM convites c ' + where).get().cnt;
-        const convites = db.prepare(`
+        const total = (await db.prepare('SELECT COUNT(*) as cnt FROM convites c ' + where).get()).cnt;
+        const convites = await db.prepare(`
             SELECT c.*, 
                    criador.nome as criador_nome, 
                    usuario.nome as usuario_nome
@@ -4001,7 +4002,7 @@ app.get('/api/admin/convites', requireAdmin, (req, res) => {
 });
 
 // API: Gerar convites (admin)
-app.post('/api/admin/convites/gerar', requireAdmin, (req, res) => {
+app.post('/api/admin/convites/gerar', requireAdmin, async (req, res) => {
     try {
         const quantidade = Math.min(parseInt(req.body.quantidade) || 1, 50);
         const tokens = [];
@@ -4009,7 +4010,7 @@ app.post('/api/admin/convites/gerar', requireAdmin, (req, res) => {
         for (let i = 0; i < quantidade; i++) {
             const token = Math.random().toString(36).substring(2, 8).toUpperCase();
             try {
-                db.prepare('INSERT INTO convites (token, criado_por, criado_em) VALUES (?, ?, ?)').run(token, req.session.userId, agora());
+                await db.prepare('INSERT INTO convites (token, criado_por, criado_em) VALUES (?, ?, ?)').run(token, req.session.userId, agora());
                 tokens.push(token);
             } catch(e) { /* token duplicado, ignora */ }
         }
@@ -4022,10 +4023,10 @@ app.post('/api/admin/convites/gerar', requireAdmin, (req, res) => {
 });
 
 // API: Excluir convite
-app.post('/api/admin/convite/excluir', requireAdmin, (req, res) => {
+app.post('/api/admin/convite/excluir', requireAdmin, async (req, res) => {
     try {
         const { id } = req.body;
-        db.prepare('DELETE FROM convites WHERE id = ?').run(id);
+        await db.prepare('DELETE FROM convites WHERE id = ?').run(id);
         res.json({ success: true, message: 'Convite excluído.' });
     } catch(err) {
         console.error('Erro admin excluir convite:', err);
@@ -4034,14 +4035,14 @@ app.post('/api/admin/convite/excluir', requireAdmin, (req, res) => {
 });
 
 // API: Moderação - listar recados (com paginação)
-app.get('/api/admin/recados', requireAdmin, (req, res) => {
+app.get('/api/admin/recados', requireAdmin, async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = 20;
         const offset = (page - 1) * limit;
 
-        const total = db.prepare('SELECT COUNT(*) as c FROM recados').get().c;
-        const recados = db.prepare(`
+        const total = (await db.prepare('SELECT COUNT(*) as c FROM recados').get()).c;
+        const recados = await db.prepare(`
             SELECT r.*, 
                    rem.nome as remetente_nome, rem.foto_perfil as remetente_foto,
                    dest.nome as destinatario_nome
@@ -4059,9 +4060,9 @@ app.get('/api/admin/recados', requireAdmin, (req, res) => {
 });
 
 // API: Moderação - excluir recado
-app.post('/api/admin/recado/excluir', requireAdmin, (req, res) => {
+app.post('/api/admin/recado/excluir', requireAdmin, async (req, res) => {
     try {
-        db.prepare('DELETE FROM recados WHERE id = ?').run(req.body.id);
+        await db.prepare('DELETE FROM recados WHERE id = ?').run(req.body.id);
         res.json({ success: true, message: 'Recado excluído.' });
     } catch(err) {
         res.json({ success: false, message: 'Erro interno.' });
@@ -4069,14 +4070,14 @@ app.post('/api/admin/recado/excluir', requireAdmin, (req, res) => {
 });
 
 // API: Moderação - listar depoimentos
-app.get('/api/admin/depoimentos', requireAdmin, (req, res) => {
+app.get('/api/admin/depoimentos', requireAdmin, async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = 20;
         const offset = (page - 1) * limit;
 
-        const total = db.prepare('SELECT COUNT(*) as c FROM depoimentos').get().c;
-        const depoimentos = db.prepare(`
+        const total = (await db.prepare('SELECT COUNT(*) as c FROM depoimentos').get()).c;
+        const depoimentos = await db.prepare(`
             SELECT d.*, 
                    rem.nome as remetente_nome, rem.foto_perfil as remetente_foto,
                    dest.nome as destinatario_nome
@@ -4094,9 +4095,9 @@ app.get('/api/admin/depoimentos', requireAdmin, (req, res) => {
 });
 
 // API: Moderação - excluir depoimento
-app.post('/api/admin/depoimento/excluir', requireAdmin, (req, res) => {
+app.post('/api/admin/depoimento/excluir', requireAdmin, async (req, res) => {
     try {
-        db.prepare('DELETE FROM depoimentos WHERE id = ?').run(req.body.id);
+        await db.prepare('DELETE FROM depoimentos WHERE id = ?').run(req.body.id);
         res.json({ success: true, message: 'Depoimento excluído.' });
     } catch(err) {
         res.json({ success: false, message: 'Erro interno.' });
@@ -4104,14 +4105,14 @@ app.post('/api/admin/depoimento/excluir', requireAdmin, (req, res) => {
 });
 
 // API: Moderação - listar mensagens
-app.get('/api/admin/mensagens', requireAdmin, (req, res) => {
+app.get('/api/admin/mensagens', requireAdmin, async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = 20;
         const offset = (page - 1) * limit;
 
-        const total = db.prepare('SELECT COUNT(*) as c FROM mensagens').get().c;
-        const mensagens = db.prepare(`
+        const total = (await db.prepare('SELECT COUNT(*) as c FROM mensagens').get()).c;
+        const mensagens = await db.prepare(`
             SELECT m.*, 
                    rem.nome as remetente_nome,
                    dest.nome as destinatario_nome
@@ -4129,9 +4130,9 @@ app.get('/api/admin/mensagens', requireAdmin, (req, res) => {
 });
 
 // API: Moderação - excluir mensagem
-app.post('/api/admin/mensagem/excluir', requireAdmin, (req, res) => {
+app.post('/api/admin/mensagem/excluir', requireAdmin, async (req, res) => {
     try {
-        db.prepare('DELETE FROM mensagens WHERE id = ?').run(req.body.id);
+        await db.prepare('DELETE FROM mensagens WHERE id = ?').run(req.body.id);
         res.json({ success: true, message: 'Mensagem excluída.' });
     } catch(err) {
         res.json({ success: false, message: 'Erro interno.' });
@@ -4139,10 +4140,10 @@ app.post('/api/admin/mensagem/excluir', requireAdmin, (req, res) => {
 });
 
 // API: Admin - detalhes completos de uma denúncia (perfis, mensagens, recados, depoimentos entre os dois)
-app.get('/api/admin/denuncia/:id', requireAdmin, (req, res) => {
+app.get('/api/admin/denuncia/:id', requireAdmin, async (req, res) => {
     try {
         const dId = parseInt(req.params.id);
-        const denuncia = db.prepare(`
+        const denuncia = await db.prepare(`
             SELECT d.*,
                    den.nome as denunciante_nome, den.foto_perfil as denunciante_foto, den.email as denunciante_email,
                    den.sexo as denunciante_sexo, den.criado_em as denunciante_criado, den.ultimo_acesso as denunciante_acesso,
@@ -4160,7 +4161,7 @@ app.get('/api/admin/denuncia/:id', requireAdmin, (req, res) => {
         if (!denuncia) return res.json({ success: false, message: 'Denúncia não encontrada.' });
 
         // Mensagens entre os dois (últimas 30)
-        const mensagens = db.prepare(`
+        const mensagens = await db.prepare(`
             SELECT m.id, m.remetente_id, m.destinatario_id, m.assunto, m.mensagem, m.criado_em,
                    r.nome as remetente_nome
             FROM mensagens m
@@ -4171,7 +4172,7 @@ app.get('/api/admin/denuncia/:id', requireAdmin, (req, res) => {
         `).all(denuncia.denunciante_id, denuncia.denunciado_id, denuncia.denunciado_id, denuncia.denunciante_id);
 
         // Recados entre os dois (últimos 30)
-        const recados = db.prepare(`
+        const recados = await db.prepare(`
             SELECT rec.id, rec.remetente_id, rec.destinatario_id, rec.mensagem, rec.criado_em,
                    r.nome as remetente_nome
             FROM recados rec
@@ -4182,7 +4183,7 @@ app.get('/api/admin/denuncia/:id', requireAdmin, (req, res) => {
         `).all(denuncia.denunciante_id, denuncia.denunciado_id, denuncia.denunciado_id, denuncia.denunciante_id);
 
         // Depoimentos entre os dois (últimos 20)
-        const depoimentos = db.prepare(`
+        const depoimentos = await db.prepare(`
             SELECT dep.id, dep.remetente_id, dep.destinatario_id, dep.mensagem, dep.aprovado, dep.criado_em,
                    r.nome as remetente_nome
             FROM depoimentos dep
@@ -4193,7 +4194,7 @@ app.get('/api/admin/denuncia/:id', requireAdmin, (req, res) => {
         `).all(denuncia.denunciante_id, denuncia.denunciado_id, denuncia.denunciado_id, denuncia.denunciante_id);
 
         // Outras denúncias envolvendo o denunciado (como denunciado)
-        const outrasDenuncias = db.prepare(`
+        const outrasDenuncias = await db.prepare(`
             SELECT d.id, d.denunciante_id, d.motivo, d.status, d.criado_em, u.nome as denunciante_nome
             FROM denuncias d
             JOIN usuarios u ON u.id = d.denunciante_id
@@ -4203,16 +4204,16 @@ app.get('/api/admin/denuncia/:id', requireAdmin, (req, res) => {
 
         // Contagens do denunciado
         const denunciadoStats = {
-            totalAmigos: db.prepare("SELECT COUNT(*) as c FROM amizades WHERE status = 'aceita' AND (remetente_id = ? OR destinatario_id = ?)").get(denuncia.denunciado_id, denuncia.denunciado_id).c,
-            totalRecados: db.prepare("SELECT COUNT(*) as c FROM recados WHERE destinatario_id = ?").get(denuncia.denunciado_id).c,
-            totalFotos: db.prepare("SELECT COUNT(*) as c FROM fotos WHERE usuario_id = ?").get(denuncia.denunciado_id).c,
-            totalDenuncias: db.prepare("SELECT COUNT(*) as c FROM denuncias WHERE denunciado_id = ?").get(denuncia.denunciado_id).c
+            totalAmigos: (await db.prepare("SELECT COUNT(*) as c FROM amizades WHERE status = 'aceita' AND (remetente_id = ? OR destinatario_id = ?)").get(denuncia.denunciado_id, denuncia.denunciado_id)).c,
+            totalRecados: (await db.prepare("SELECT COUNT(*) as c FROM recados WHERE destinatario_id = ?").get(denuncia.denunciado_id)).c,
+            totalFotos: (await db.prepare("SELECT COUNT(*) as c FROM fotos WHERE usuario_id = ?").get(denuncia.denunciado_id)).c,
+            totalDenuncias: (await db.prepare("SELECT COUNT(*) as c FROM denuncias WHERE denunciado_id = ?").get(denuncia.denunciado_id)).c
         };
 
         // Contagens do denunciante
         const denuncianteStats = {
-            totalAmigos: db.prepare("SELECT COUNT(*) as c FROM amizades WHERE status = 'aceita' AND (remetente_id = ? OR destinatario_id = ?)").get(denuncia.denunciante_id, denuncia.denunciante_id).c,
-            totalDenuncias: db.prepare("SELECT COUNT(*) as c FROM denuncias WHERE denunciante_id = ?").get(denuncia.denunciante_id).c
+            totalAmigos: (await db.prepare("SELECT COUNT(*) as c FROM amizades WHERE status = 'aceita' AND (remetente_id = ? OR destinatario_id = ?)").get(denuncia.denunciante_id, denuncia.denunciante_id)).c,
+            totalDenuncias: (await db.prepare("SELECT COUNT(*) as c FROM denuncias WHERE denunciante_id = ?").get(denuncia.denunciante_id)).c
         };
 
         res.json({
@@ -4232,7 +4233,7 @@ app.get('/api/admin/denuncia/:id', requireAdmin, (req, res) => {
 });
 
 // API: Denunciar usuário (endpoint público, requireLogin)
-app.post('/api/denunciar', requireLogin, (req, res) => {
+app.post('/api/denunciar', requireLogin, async (req, res) => {
     try {
         const { denunciado_id, motivo } = req.body;
         const denunciante_id = req.session.userId;
@@ -4243,11 +4244,11 @@ app.post('/api/denunciar', requireLogin, (req, res) => {
             return res.json({ success: false, message: 'Você não pode denunciar a si mesmo.' });
         }
         // Verificar se já existe denúncia pendente deste user para este alvo
-        const existente = db.prepare('SELECT id FROM denuncias WHERE denunciante_id = ? AND denunciado_id = ? AND status = ?').get(denunciante_id, denunciado_id, 'pendente');
+        const existente = await db.prepare('SELECT id FROM denuncias WHERE denunciante_id = ? AND denunciado_id = ? AND status = ?').get(denunciante_id, denunciado_id, 'pendente');
         if (existente) {
             return res.json({ success: false, message: 'Você já possui uma denúncia pendente para este usuário.' });
         }
-        const result = db.prepare('INSERT INTO denuncias (denunciante_id, denunciado_id, motivo) VALUES (?, ?, ?)').run(denunciante_id, denunciado_id, motivo.trim());
+        const result = await db.prepare('INSERT INTO denuncias (denunciante_id, denunciado_id, motivo) VALUES (?, ?, ?)').run(denunciante_id, denunciado_id, motivo.trim());
         res.json({ success: true, message: 'Denúncia enviada com sucesso. Nossa equipe irá analisar.', denunciaId: result.lastInsertRowid });
     } catch(err) {
         console.error('Erro ao denunciar:', err);
@@ -4256,9 +4257,9 @@ app.post('/api/denunciar', requireLogin, (req, res) => {
 });
 
 // API: Minhas denúncias
-app.get('/api/minhas-denuncias', requireLogin, (req, res) => {
+app.get('/api/minhas-denuncias', requireLogin, async (req, res) => {
     try {
-        const denuncias = db.prepare(`
+        const denuncias = await db.prepare(`
             SELECT d.*, u.nome as denunciado_nome, u.foto_perfil as denunciado_foto,
                    (SELECT COUNT(*) FROM denuncia_mensagens dm WHERE dm.denuncia_id = d.id AND dm.is_admin = 1 AND dm.lida = 0) as mensagens_nao_lidas,
                    (SELECT COUNT(*) FROM denuncia_mensagens dm WHERE dm.denuncia_id = d.id) as total_mensagens,
@@ -4276,7 +4277,7 @@ app.get('/api/minhas-denuncias', requireLogin, (req, res) => {
 });
 
 // API: Admin - listar denúncias
-app.get('/api/admin/denuncias', requireAdmin, (req, res) => {
+app.get('/api/admin/denuncias', requireAdmin, async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = 20;
@@ -4290,8 +4291,8 @@ app.get('/api/admin/denuncias', requireAdmin, (req, res) => {
         else if (filtro === 'resolvida') where = "WHERE d.status = 'resolvida'";
         else if (filtro === 'rejeitada') where = "WHERE d.status = 'rejeitada'";
 
-        const total = db.prepare('SELECT COUNT(*) as c FROM denuncias d ' + where).get().c;
-        const denuncias = db.prepare(`
+        const total = (await db.prepare('SELECT COUNT(*) as c FROM denuncias d ' + where).get()).c;
+        const denuncias = await db.prepare(`
             SELECT d.*,
                    den.nome as denunciante_nome,
                    alv.nome as denunciado_nome
@@ -4310,7 +4311,7 @@ app.get('/api/admin/denuncias', requireAdmin, (req, res) => {
 });
 
 // API: Admin - atualizar status da denúncia
-app.post('/api/admin/denuncia/status', requireAdmin, (req, res) => {
+app.post('/api/admin/denuncia/status', requireAdmin, async (req, res) => {
     try {
         const { id, status, resposta_admin } = req.body;
         if (!['pendente', 'analisando', 'respondido', 'resolvida', 'rejeitada'].includes(status)) {
@@ -4328,7 +4329,7 @@ app.post('/api/admin/denuncia/status', requireAdmin, (req, res) => {
             params.push(req.session.userId);
         }
         params.push(id);
-        db.prepare('UPDATE denuncias SET ' + updates.join(', ') + ' WHERE id = ?').run(...params);
+        await db.prepare('UPDATE denuncias SET ' + updates.join(', ') + ' WHERE id = ?').run(...params);
         res.json({ success: true, message: 'Denúncia atualizada.' });
     } catch(err) {
         console.error('Erro atualizar denúncia:', err);
@@ -4337,10 +4338,10 @@ app.post('/api/admin/denuncia/status', requireAdmin, (req, res) => {
 });
 
 // API: Admin - excluir denúncia
-app.post('/api/admin/denuncia/excluir', requireAdmin, (req, res) => {
+app.post('/api/admin/denuncia/excluir', requireAdmin, async (req, res) => {
     try {
-        db.prepare('DELETE FROM denuncia_mensagens WHERE denuncia_id = ?').run(req.body.id);
-        db.prepare('DELETE FROM denuncias WHERE id = ?').run(req.body.id);
+        await db.prepare('DELETE FROM denuncia_mensagens WHERE denuncia_id = ?').run(req.body.id);
+        await db.prepare('DELETE FROM denuncias WHERE id = ?').run(req.body.id);
         res.json({ success: true, message: 'Denúncia excluída.' });
     } catch(err) {
         res.json({ success: false, message: 'Erro interno.' });
@@ -4348,10 +4349,10 @@ app.post('/api/admin/denuncia/excluir', requireAdmin, (req, res) => {
 });
 
 // API: Admin - detalhe completo da denúncia
-app.get('/api/admin/denuncia-detalhe/:id', requireAdmin, (req, res) => {
+app.get('/api/admin/denuncia-detalhe/:id', requireAdmin, async (req, res) => {
     try {
         const denId = parseInt(req.params.id);
-        const denuncia = db.prepare(`
+        const denuncia = await db.prepare(`
             SELECT d.*,
                    den.nome as denunciante_nome, den.foto_perfil as denunciante_foto, den.email as denunciante_email,
                    den.cidade as denunciante_cidade, den.estado as denunciante_estado, den.criado_em as denunciante_criado,
@@ -4370,14 +4371,14 @@ app.get('/api/admin/denuncia-detalhe/:id', requireAdmin, (req, res) => {
 
         // Stats
         const getStats = (uid) => ({
-            totalAmigos: db.prepare("SELECT COUNT(*) as c FROM amizades WHERE (remetente_id=? OR destinatario_id=?) AND status='aceita'").get(uid, uid).c,
-            totalRecados: db.prepare("SELECT COUNT(*) as c FROM recados WHERE destinatario_id=?").get(uid).c,
-            totalFotos: db.prepare("SELECT COUNT(*) as c FROM fotos WHERE usuario_id=?").get(uid).c,
-            totalDenuncias: db.prepare("SELECT COUNT(*) as c FROM denuncias WHERE denunciado_id=?").get(uid).c
+            totalAmigos: (await db.prepare("SELECT COUNT(*) as c FROM amizades WHERE (remetente_id=? OR destinatario_id=?) AND status='aceita'").get(uid, uid)).c,
+            totalRecados: (await db.prepare("SELECT COUNT(*) as c FROM recados WHERE destinatario_id=?").get(uid)).c,
+            totalFotos: (await db.prepare("SELECT COUNT(*) as c FROM fotos WHERE usuario_id=?").get(uid)).c,
+            totalDenuncias: (await db.prepare("SELECT COUNT(*) as c FROM denuncias WHERE denunciado_id=?").get(uid)).c
         });
 
         // Mensagens entre os dois
-        const mensagens = db.prepare(`
+        const mensagens = await db.prepare(`
             SELECT m.*, u.nome as remetente_nome FROM mensagens m
             JOIN usuarios u ON u.id = m.remetente_id
             WHERE (m.remetente_id = ? AND m.destinatario_id = ?) OR (m.remetente_id = ? AND m.destinatario_id = ?)
@@ -4385,7 +4386,7 @@ app.get('/api/admin/denuncia-detalhe/:id', requireAdmin, (req, res) => {
         `).all(denuncia.denunciante_id, denuncia.denunciado_id, denuncia.denunciado_id, denuncia.denunciante_id);
 
         // Recados entre os dois
-        const recados = db.prepare(`
+        const recados = await db.prepare(`
             SELECT r.*, u.nome as remetente_nome FROM recados r
             JOIN usuarios u ON u.id = r.remetente_id
             WHERE (r.remetente_id = ? AND r.destinatario_id = ?) OR (r.remetente_id = ? AND r.destinatario_id = ?)
@@ -4393,7 +4394,7 @@ app.get('/api/admin/denuncia-detalhe/:id', requireAdmin, (req, res) => {
         `).all(denuncia.denunciante_id, denuncia.denunciado_id, denuncia.denunciado_id, denuncia.denunciante_id);
 
         // Depoimentos entre os dois
-        const depoimentos = db.prepare(`
+        const depoimentos = await db.prepare(`
             SELECT d2.*, u.nome as remetente_nome FROM depoimentos d2
             JOIN usuarios u ON u.id = d2.remetente_id
             WHERE (d2.remetente_id = ? AND d2.destinatario_id = ?) OR (d2.remetente_id = ? AND d2.destinatario_id = ?)
@@ -4401,7 +4402,7 @@ app.get('/api/admin/denuncia-detalhe/:id', requireAdmin, (req, res) => {
         `).all(denuncia.denunciante_id, denuncia.denunciado_id, denuncia.denunciado_id, denuncia.denunciante_id);
 
         // Outras denúncias contra o denunciado
-        const outrasDenuncias = db.prepare(`
+        const outrasDenuncias = await db.prepare(`
             SELECT d2.*, u.nome as denunciante_nome FROM denuncias d2
             JOIN usuarios u ON u.id = d2.denunciante_id
             WHERE d2.denunciado_id = ? AND d2.id != ?
@@ -4409,7 +4410,7 @@ app.get('/api/admin/denuncia-detalhe/:id', requireAdmin, (req, res) => {
         `).all(denuncia.denunciado_id, denId);
 
         // Chat da denúncia (mensagens admin<->user)
-        const chatMensagens = db.prepare(`
+        const chatMensagens = await db.prepare(`
             SELECT dm.*, u.nome as remetente_nome FROM denuncia_mensagens dm
             JOIN usuarios u ON u.id = dm.remetente_id
             WHERE dm.denuncia_id = ?
@@ -4417,7 +4418,7 @@ app.get('/api/admin/denuncia-detalhe/:id', requireAdmin, (req, res) => {
         `).all(denId);
 
         // Marcar mensagens do user como lidas pelo admin
-        db.prepare("UPDATE denuncia_mensagens SET lida = 1 WHERE denuncia_id = ? AND is_admin = 0").run(denId);
+        await db.prepare("UPDATE denuncia_mensagens SET lida = 1 WHERE denuncia_id = ? AND is_admin = 0").run(denId);
 
         res.json({
             success: true,
@@ -4433,27 +4434,27 @@ app.get('/api/admin/denuncia-detalhe/:id', requireAdmin, (req, res) => {
 });
 
 // API: Admin - enviar mensagem no chat da denúncia
-app.post('/api/admin/denuncia-chat/:id', requireAdmin, (req, res) => {
+app.post('/api/admin/denuncia-chat/:id', requireAdmin, async (req, res) => {
     try {
         const denId = parseInt(req.params.id);
         const { mensagem } = req.body;
         if (!mensagem || !mensagem.trim()) return res.json({ success: false, message: 'Mensagem vazia.' });
 
-        const denuncia = db.prepare('SELECT id, status FROM denuncias WHERE id = ?').get(denId);
+        const denuncia = await db.prepare('SELECT id, status FROM denuncias WHERE id = ?').get(denId);
         if (!denuncia) return res.json({ success: false, message: 'Denúncia não encontrada.' });
 
-        db.prepare('INSERT INTO denuncia_mensagens (denuncia_id, remetente_id, mensagem, is_admin) VALUES (?, ?, ?, 1)').run(denId, req.session.userId, mensagem.trim());
+        await db.prepare('INSERT INTO denuncia_mensagens (denuncia_id, remetente_id, mensagem, is_admin) VALUES (?, ?, ?, 1)').run(denId, req.session.userId, mensagem.trim());
 
         // Atualizar status para 'respondido' automaticamente
         if (denuncia.status !== 'resolvida' && denuncia.status !== 'rejeitada') {
-            db.prepare("UPDATE denuncias SET status = 'respondido' WHERE id = ?").run(denId);
+            await db.prepare("UPDATE denuncias SET status = 'respondido' WHERE id = ?").run(denId);
         }
 
         // Criar notificação para o denunciante
-        const denCompleta = db.prepare('SELECT denunciante_id FROM denuncias WHERE id = ?').get(denId);
+        const denCompleta = await db.prepare('SELECT denunciante_id FROM denuncias WHERE id = ?').get(denId);
         if (denCompleta) {
             const previewMsg = mensagem.trim().length > 80 ? mensagem.trim().substring(0, 80) + '...' : mensagem.trim();
-            db.prepare(`INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem, link) VALUES (?, 'denuncia_resposta', 'Voce recebeu uma nova mensagem em sua Denúncia', ?, ?)`)
+            await db.prepare(`INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem, link) VALUES (?, 'denuncia_resposta', 'Voce recebeu uma nova mensagem em sua Denúncia', ?, ?)`)
                 .run(denCompleta.denunciante_id, previewMsg, '/configuracoes.php?denuncias=1&did=' + denId);
         }
 
@@ -4465,13 +4466,13 @@ app.post('/api/admin/denuncia-chat/:id', requireAdmin, (req, res) => {
 });
 
 // API: Usuário - mensagens do chat da denúncia
-app.get('/api/denuncia-chat/:id', requireLogin, (req, res) => {
+app.get('/api/denuncia-chat/:id', requireLogin, async (req, res) => {
     try {
         const denId = parseInt(req.params.id);
-        const denuncia = db.prepare('SELECT * FROM denuncias WHERE id = ? AND denunciante_id = ?').get(denId, req.session.userId);
+        const denuncia = await db.prepare('SELECT * FROM denuncias WHERE id = ? AND denunciante_id = ?').get(denId, req.session.userId);
         if (!denuncia) return res.json({ success: false, message: 'Denúncia não encontrada.' });
 
-        const mensagens = db.prepare(`
+        const mensagens = await db.prepare(`
             SELECT dm.*, u.nome as remetente_nome FROM denuncia_mensagens dm
             JOIN usuarios u ON u.id = dm.remetente_id
             WHERE dm.denuncia_id = ?
@@ -4479,7 +4480,7 @@ app.get('/api/denuncia-chat/:id', requireLogin, (req, res) => {
         `).all(denId);
 
         // Marcar mensagens do admin como lidas pelo user
-        db.prepare("UPDATE denuncia_mensagens SET lida = 1 WHERE denuncia_id = ? AND is_admin = 1").run(denId);
+        await db.prepare("UPDATE denuncia_mensagens SET lida = 1 WHERE denuncia_id = ? AND is_admin = 1").run(denId);
 
         res.json({ success: true, mensagens, denuncia });
     } catch(err) {
@@ -4489,14 +4490,14 @@ app.get('/api/denuncia-chat/:id', requireLogin, (req, res) => {
 });
 
 // API: Usuário - desistir da denúncia (deletar permanentemente)
-app.post('/api/denuncia-desistir/:id', requireLogin, (req, res) => {
+app.post('/api/denuncia-desistir/:id', requireLogin, async (req, res) => {
     try {
         const denId = parseInt(req.params.id);
-        const denuncia = db.prepare('SELECT * FROM denuncias WHERE id = ? AND denunciante_id = ?').get(denId, req.session.userId);
+        const denuncia = await db.prepare('SELECT * FROM denuncias WHERE id = ? AND denunciante_id = ?').get(denId, req.session.userId);
         if (!denuncia) return res.json({ success: false, message: 'Denúncia não encontrada.' });
 
         // Deletar a denúncia (mensagens são removidas via CASCADE)
-        db.prepare('DELETE FROM denuncias WHERE id = ?').run(denId);
+        await db.prepare('DELETE FROM denuncias WHERE id = ?').run(denId);
         res.json({ success: true, message: 'Denúncia removida com sucesso.' });
     } catch(err) {
         console.error('Erro ao desistir da denúncia:', err);
@@ -4505,24 +4506,24 @@ app.post('/api/denuncia-desistir/:id', requireLogin, (req, res) => {
 });
 
 // API: Usuário - enviar mensagem no chat da denúncia
-app.post('/api/denuncia-chat/:id', requireLogin, (req, res) => {
+app.post('/api/denuncia-chat/:id', requireLogin, async (req, res) => {
     try {
         const denId = parseInt(req.params.id);
         const { mensagem } = req.body;
         if (!mensagem || !mensagem.trim()) return res.json({ success: false, message: 'Mensagem vazia.' });
 
-        const denuncia = db.prepare('SELECT * FROM denuncias WHERE id = ? AND denunciante_id = ?').get(denId, req.session.userId);
+        const denuncia = await db.prepare('SELECT * FROM denuncias WHERE id = ? AND denunciante_id = ?').get(denId, req.session.userId);
         if (!denuncia) return res.json({ success: false, message: 'Denúncia não encontrada.' });
 
         if (denuncia.status === 'resolvida' || denuncia.status === 'rejeitada') {
             return res.json({ success: false, message: 'Esta denúncia já foi encerrada.' });
         }
 
-        db.prepare('INSERT INTO denuncia_mensagens (denuncia_id, remetente_id, mensagem, is_admin) VALUES (?, ?, ?, 0)').run(denId, req.session.userId, mensagem.trim());
+        await db.prepare('INSERT INTO denuncia_mensagens (denuncia_id, remetente_id, mensagem, is_admin) VALUES (?, ?, ?, 0)').run(denId, req.session.userId, mensagem.trim());
 
         // Voltar status para 'pendente' quando o usuário responde
         if (denuncia.status === 'respondido') {
-            db.prepare("UPDATE denuncias SET status = 'pendente' WHERE id = ?").run(denId);
+            await db.prepare("UPDATE denuncias SET status = 'pendente' WHERE id = ?").run(denId);
         }
 
         res.json({ success: true });
@@ -4535,7 +4536,7 @@ app.post('/api/denuncia-chat/:id', requireLogin, (req, res) => {
 // ===== DENÚNCIAS DE COMUNIDADES =====
 
 // API: Denunciar comunidade
-app.post('/api/denunciar-comunidade', requireLogin, (req, res) => {
+app.post('/api/denunciar-comunidade', requireLogin, async (req, res) => {
     try {
         const { comunidade_id, motivo } = req.body;
         const denunciante_id = req.session.userId;
@@ -4543,17 +4544,17 @@ app.post('/api/denunciar-comunidade', requireLogin, (req, res) => {
             return res.json({ success: false, message: 'Preencha o motivo da denúncia.' });
         }
         // Verificar se comunidade existe
-        const com = db.prepare('SELECT id, dono_id FROM comunidades WHERE id = ?').get(comunidade_id);
+        const com = await db.prepare('SELECT id, dono_id FROM comunidades WHERE id = ?').get(comunidade_id);
         if (!com) return res.json({ success: false, message: 'Comunidade não encontrada.' });
         if (String(com.dono_id) === String(denunciante_id)) {
             return res.json({ success: false, message: 'Você não pode denunciar sua própria comunidade.' });
         }
         // Verificar se já existe denúncia pendente
-        const existente = db.prepare('SELECT id FROM denuncias_comunidades WHERE denunciante_id = ? AND comunidade_id = ? AND status = ?').get(denunciante_id, comunidade_id, 'pendente');
+        const existente = await db.prepare('SELECT id FROM denuncias_comunidades WHERE denunciante_id = ? AND comunidade_id = ? AND status = ?').get(denunciante_id, comunidade_id, 'pendente');
         if (existente) {
             return res.json({ success: false, message: 'Você já possui uma denúncia pendente para esta comunidade.' });
         }
-        const result = db.prepare('INSERT INTO denuncias_comunidades (denunciante_id, comunidade_id, motivo) VALUES (?, ?, ?)').run(denunciante_id, comunidade_id, motivo.trim());
+        const result = await db.prepare('INSERT INTO denuncias_comunidades (denunciante_id, comunidade_id, motivo) VALUES (?, ?, ?)').run(denunciante_id, comunidade_id, motivo.trim());
         res.json({ success: true, message: 'Denúncia enviada com sucesso.', denunciaId: result.lastInsertRowid });
     } catch(err) {
         console.error('Erro ao denunciar comunidade:', err);
@@ -4562,9 +4563,9 @@ app.post('/api/denunciar-comunidade', requireLogin, (req, res) => {
 });
 
 // API: Minhas denúncias de comunidades
-app.get('/api/minhas-denuncias-comunidades', requireLogin, (req, res) => {
+app.get('/api/minhas-denuncias-comunidades', requireLogin, async (req, res) => {
     try {
-        const denuncias = db.prepare(`
+        const denuncias = await db.prepare(`
             SELECT dc.*, c.nome as comunidade_nome, c.foto as comunidade_foto,
                    (SELECT COUNT(*) FROM denuncia_comunidade_mensagens dcm WHERE dcm.denuncia_id = dc.id AND dcm.is_admin = 1 AND dcm.lida = 0) as mensagens_nao_lidas,
                    (SELECT COUNT(*) FROM denuncia_comunidade_mensagens dcm WHERE dcm.denuncia_id = dc.id) as total_mensagens,
@@ -4582,20 +4583,20 @@ app.get('/api/minhas-denuncias-comunidades', requireLogin, (req, res) => {
 });
 
 // API: Chat da denúncia de comunidade (user)
-app.get('/api/denuncia-comunidade-chat/:id', requireLogin, (req, res) => {
+app.get('/api/denuncia-comunidade-chat/:id', requireLogin, async (req, res) => {
     try {
         const denId = parseInt(req.params.id);
-        const denuncia = db.prepare('SELECT * FROM denuncias_comunidades WHERE id = ? AND denunciante_id = ?').get(denId, req.session.userId);
+        const denuncia = await db.prepare('SELECT * FROM denuncias_comunidades WHERE id = ? AND denunciante_id = ?').get(denId, req.session.userId);
         if (!denuncia) return res.json({ success: false, message: 'Denúncia não encontrada.' });
 
-        const mensagens = db.prepare(`
+        const mensagens = await db.prepare(`
             SELECT dm.*, u.nome as remetente_nome FROM denuncia_comunidade_mensagens dm
             JOIN usuarios u ON u.id = dm.remetente_id
             WHERE dm.denuncia_id = ? ORDER BY dm.criado_em ASC
         `).all(denId);
 
         // Marcar mensagens admin como lidas
-        db.prepare("UPDATE denuncia_comunidade_mensagens SET lida = 1 WHERE denuncia_id = ? AND is_admin = 1").run(denId);
+        await db.prepare("UPDATE denuncia_comunidade_mensagens SET lida = 1 WHERE denuncia_id = ? AND is_admin = 1").run(denId);
 
         res.json({ success: true, mensagens, denuncia });
     } catch(err) {
@@ -4605,21 +4606,21 @@ app.get('/api/denuncia-comunidade-chat/:id', requireLogin, (req, res) => {
 });
 
 // API: User - enviar msg no chat da denúncia de comunidade
-app.post('/api/denuncia-comunidade-chat/:id', requireLogin, (req, res) => {
+app.post('/api/denuncia-comunidade-chat/:id', requireLogin, async (req, res) => {
     try {
         const denId = parseInt(req.params.id);
         const { mensagem } = req.body;
         if (!mensagem || !mensagem.trim()) return res.json({ success: false, message: 'Mensagem vazia.' });
 
-        const denuncia = db.prepare('SELECT * FROM denuncias_comunidades WHERE id = ? AND denunciante_id = ?').get(denId, req.session.userId);
+        const denuncia = await db.prepare('SELECT * FROM denuncias_comunidades WHERE id = ? AND denunciante_id = ?').get(denId, req.session.userId);
         if (!denuncia) return res.json({ success: false, message: 'Denúncia não encontrada.' });
         if (denuncia.status === 'resolvida' || denuncia.status === 'rejeitada') {
             return res.json({ success: false, message: 'Esta denúncia já foi encerrada.' });
         }
 
-        db.prepare('INSERT INTO denuncia_comunidade_mensagens (denuncia_id, remetente_id, mensagem, is_admin) VALUES (?, ?, ?, 0)').run(denId, req.session.userId, mensagem.trim());
+        await db.prepare('INSERT INTO denuncia_comunidade_mensagens (denuncia_id, remetente_id, mensagem, is_admin) VALUES (?, ?, ?, 0)').run(denId, req.session.userId, mensagem.trim());
         if (denuncia.status === 'respondido') {
-            db.prepare("UPDATE denuncias_comunidades SET status = 'pendente' WHERE id = ?").run(denId);
+            await db.prepare("UPDATE denuncias_comunidades SET status = 'pendente' WHERE id = ?").run(denId);
         }
         res.json({ success: true });
     } catch(err) {
@@ -4629,12 +4630,12 @@ app.post('/api/denuncia-comunidade-chat/:id', requireLogin, (req, res) => {
 });
 
 // API: User - desistir da denúncia de comunidade
-app.post('/api/denuncia-comunidade-desistir/:id', requireLogin, (req, res) => {
+app.post('/api/denuncia-comunidade-desistir/:id', requireLogin, async (req, res) => {
     try {
         const denId = parseInt(req.params.id);
-        const denuncia = db.prepare('SELECT * FROM denuncias_comunidades WHERE id = ? AND denunciante_id = ?').get(denId, req.session.userId);
+        const denuncia = await db.prepare('SELECT * FROM denuncias_comunidades WHERE id = ? AND denunciante_id = ?').get(denId, req.session.userId);
         if (!denuncia) return res.json({ success: false, message: 'Denúncia não encontrada.' });
-        db.prepare('DELETE FROM denuncias_comunidades WHERE id = ?').run(denId);
+        await db.prepare('DELETE FROM denuncias_comunidades WHERE id = ?').run(denId);
         res.json({ success: true, message: 'Denúncia removida com sucesso.' });
     } catch(err) {
         console.error('Erro ao desistir denúncia comunidade:', err);
@@ -4643,7 +4644,7 @@ app.post('/api/denuncia-comunidade-desistir/:id', requireLogin, (req, res) => {
 });
 
 // API: Admin - listar denúncias de comunidades
-app.get('/api/admin/denuncias-comunidades', requireAdmin, (req, res) => {
+app.get('/api/admin/denuncias-comunidades', requireAdmin, async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = 20;
@@ -4653,8 +4654,8 @@ app.get('/api/admin/denuncias-comunidades', requireAdmin, (req, res) => {
         let where = '';
         if (filtro !== 'todos') where = "WHERE dc.status = '" + filtro.replace(/'/g, '') + "'";
 
-        const total = db.prepare('SELECT COUNT(*) as c FROM denuncias_comunidades dc ' + where).get().c;
-        const denuncias = db.prepare(`
+        const total = (await db.prepare('SELECT COUNT(*) as c FROM denuncias_comunidades dc ' + where).get()).c;
+        const denuncias = await db.prepare(`
             SELECT dc.*, u.nome as denunciante_nome, c.nome as comunidade_nome, c.foto as comunidade_foto,
                    u2.nome as dono_nome
             FROM denuncias_comunidades dc
@@ -4676,10 +4677,10 @@ app.get('/api/admin/denuncias-comunidades', requireAdmin, (req, res) => {
 });
 
 // API: Admin - detalhe denúncia de comunidade
-app.get('/api/admin/denuncia-comunidade-detalhe/:id', requireAdmin, (req, res) => {
+app.get('/api/admin/denuncia-comunidade-detalhe/:id', requireAdmin, async (req, res) => {
     try {
         const denId = parseInt(req.params.id);
-        const denuncia = db.prepare(`
+        const denuncia = await db.prepare(`
             SELECT dc.*,
                    u.nome as denunciante_nome, u.foto_perfil as denunciante_foto, u.email as denunciante_email,
                    u.cidade as denunciante_cidade, u.estado as denunciante_estado, u.criado_em as denunciante_criado,
@@ -4699,11 +4700,11 @@ app.get('/api/admin/denuncia-comunidade-detalhe/:id', requireAdmin, (req, res) =
         if (!denuncia) return res.json({ success: false, message: 'Denúncia não encontrada.' });
 
         // Stats da comunidade
-        const totalMembros = db.prepare('SELECT COUNT(*) as c FROM comunidade_membros WHERE comunidade_id = ?').get(denuncia.comunidade_id).c;
-        const totalDenuncias = db.prepare('SELECT COUNT(*) as c FROM denuncias_comunidades WHERE comunidade_id = ?').get(denuncia.comunidade_id).c;
+        const totalMembros = (await db.prepare('SELECT COUNT(*) as c FROM comunidade_membros WHERE comunidade_id = ?').get(denuncia.comunidade_id)).c;
+        const totalDenuncias = (await db.prepare('SELECT COUNT(*) as c FROM denuncias_comunidades WHERE comunidade_id = ?').get(denuncia.comunidade_id)).c;
 
         // Outras denúncias contra esta comunidade
-        const outrasDenuncias = db.prepare(`
+        const outrasDenuncias = await db.prepare(`
             SELECT dc2.*, u2.nome as denunciante_nome FROM denuncias_comunidades dc2
             JOIN usuarios u2 ON u2.id = dc2.denunciante_id
             WHERE dc2.comunidade_id = ? AND dc2.id != ?
@@ -4711,14 +4712,14 @@ app.get('/api/admin/denuncia-comunidade-detalhe/:id', requireAdmin, (req, res) =
         `).all(denuncia.comunidade_id, denId);
 
         // Chat
-        const chatMensagens = db.prepare(`
+        const chatMensagens = await db.prepare(`
             SELECT dm.*, u3.nome as remetente_nome FROM denuncia_comunidade_mensagens dm
             JOIN usuarios u3 ON u3.id = dm.remetente_id
             WHERE dm.denuncia_id = ? ORDER BY dm.criado_em ASC
         `).all(denId);
 
         // Marcar mensagens do user como lidas pelo admin
-        db.prepare("UPDATE denuncia_comunidade_mensagens SET lida = 1 WHERE denuncia_id = ? AND is_admin = 0").run(denId);
+        await db.prepare("UPDATE denuncia_comunidade_mensagens SET lida = 1 WHERE denuncia_id = ? AND is_admin = 0").run(denId);
 
         res.json({
             success: true, denuncia,
@@ -4732,24 +4733,24 @@ app.get('/api/admin/denuncia-comunidade-detalhe/:id', requireAdmin, (req, res) =
 });
 
 // API: Admin - enviar msg chat denúncia de comunidade
-app.post('/api/admin/denuncia-comunidade-chat/:id', requireAdmin, (req, res) => {
+app.post('/api/admin/denuncia-comunidade-chat/:id', requireAdmin, async (req, res) => {
     try {
         const denId = parseInt(req.params.id);
         const { mensagem } = req.body;
         if (!mensagem || !mensagem.trim()) return res.json({ success: false, message: 'Mensagem vazia.' });
 
-        const denuncia = db.prepare('SELECT id, status, denunciante_id FROM denuncias_comunidades WHERE id = ?').get(denId);
+        const denuncia = await db.prepare('SELECT id, status, denunciante_id FROM denuncias_comunidades WHERE id = ?').get(denId);
         if (!denuncia) return res.json({ success: false, message: 'Denúncia não encontrada.' });
 
-        db.prepare('INSERT INTO denuncia_comunidade_mensagens (denuncia_id, remetente_id, mensagem, is_admin) VALUES (?, ?, ?, 1)').run(denId, req.session.userId, mensagem.trim());
+        await db.prepare('INSERT INTO denuncia_comunidade_mensagens (denuncia_id, remetente_id, mensagem, is_admin) VALUES (?, ?, ?, 1)').run(denId, req.session.userId, mensagem.trim());
 
         if (denuncia.status !== 'resolvida' && denuncia.status !== 'rejeitada') {
-            db.prepare("UPDATE denuncias_comunidades SET status = 'respondido' WHERE id = ?").run(denId);
+            await db.prepare("UPDATE denuncias_comunidades SET status = 'respondido' WHERE id = ?").run(denId);
         }
 
         // Notificar o denunciante
         const previewMsg = mensagem.trim().length > 80 ? mensagem.trim().substring(0, 80) + '...' : mensagem.trim();
-        db.prepare(`INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem, link, remetente_id) VALUES (?, 'denuncia_resposta', 'Voce recebeu uma nova mensagem em sua Denúncia de Comunidade', ?, ?, ?)`).run(
+        await db.prepare(`INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem, link, remetente_id) VALUES (?, 'denuncia_resposta', 'Voce recebeu uma nova mensagem em sua Denúncia de Comunidade', ?, ?, ?)`).run(
             denuncia.denunciante_id, previewMsg, '/configuracoes.php?denuncias=1&dcid=' + denId, req.session.userId
         );
 
@@ -4761,7 +4762,7 @@ app.post('/api/admin/denuncia-comunidade-chat/:id', requireAdmin, (req, res) => 
 });
 
 // API: Admin - alterar status denúncia de comunidade
-app.post('/api/admin/denuncia-comunidade/status', requireAdmin, (req, res) => {
+app.post('/api/admin/denuncia-comunidade/status', requireAdmin, async (req, res) => {
     try {
         const { id, status, resposta_admin } = req.body;
         if (!id || !status) return res.json({ success: false, message: 'Dados inválidos.' });
@@ -4769,8 +4770,8 @@ app.post('/api/admin/denuncia-comunidade/status', requireAdmin, (req, res) => {
         if (!validos.includes(status)) return res.json({ success: false, message: 'Status inválido.' });
 
         const update = status === 'resolvida' || status === 'rejeitada'
-            ? db.prepare('UPDATE denuncias_comunidades SET status = ?, resposta_admin = ?, resolvido_por = ?, resolvido_em = datetime(\'now\',\'-3 hours\') WHERE id = ?')
-            : db.prepare('UPDATE denuncias_comunidades SET status = ?, resposta_admin = ?, resolvido_por = NULL, resolvido_em = NULL WHERE id = ?');
+            ? await db.prepare('UPDATE denuncias_comunidades SET status = ?, resposta_admin = ?, resolvido_por = ?, resolvido_em = datetime(\'now\',\'-3 hours\') WHERE id = ?')
+            : await db.prepare('UPDATE denuncias_comunidades SET status = ?, resposta_admin = ?, resolvido_por = NULL, resolvido_em = NULL WHERE id = ?');
 
         if (status === 'resolvida' || status === 'rejeitada') {
             update.run(status, resposta_admin || null, req.session.userId, id);
@@ -4785,12 +4786,12 @@ app.post('/api/admin/denuncia-comunidade/status', requireAdmin, (req, res) => {
 });
 
 // API: Admin - excluir denúncia de comunidade
-app.post('/api/admin/denuncia-comunidade/excluir', requireAdmin, (req, res) => {
+app.post('/api/admin/denuncia-comunidade/excluir', requireAdmin, async (req, res) => {
     try {
         const { id } = req.body;
         if (!id) return res.json({ success: false, message: 'ID inválido.' });
-        db.prepare('DELETE FROM denuncia_comunidade_mensagens WHERE denuncia_id = ?').run(id);
-        db.prepare('DELETE FROM denuncias_comunidades WHERE id = ?').run(id);
+        await db.prepare('DELETE FROM denuncia_comunidade_mensagens WHERE denuncia_id = ?').run(id);
+        await db.prepare('DELETE FROM denuncias_comunidades WHERE id = ?').run(id);
         res.json({ success: true, message: 'Denúncia excluída.' });
     } catch(err) {
         console.error('Erro excluir denúncia comunidade:', err);
@@ -4799,16 +4800,16 @@ app.post('/api/admin/denuncia-comunidade/excluir', requireAdmin, (req, res) => {
 });
 
 // API: Buscar notificações do usuário
-app.get('/api/notificacoes', requireLogin, (req, res) => {
+app.get('/api/notificacoes', requireLogin, async (req, res) => {
     try {
-        const notifs = db.prepare(`
+        const notifs = await db.prepare(`
             SELECT n.*, u.nome AS remetente_nome, u.foto_perfil AS remetente_foto
             FROM notificacoes n
             LEFT JOIN usuarios u ON u.id = n.remetente_id
             WHERE n.usuario_id = ?
             ORDER BY n.criado_em DESC LIMIT 20
         `).all(req.session.userId);
-        const naoLidas = db.prepare(
+        const naoLidas = await db.prepare(
             'SELECT COUNT(*) AS total FROM notificacoes WHERE usuario_id = ? AND lida = 0'
         ).get(req.session.userId).total;
         res.json({ success: true, notificacoes: notifs, naoLidas });
@@ -4819,9 +4820,9 @@ app.get('/api/notificacoes', requireLogin, (req, res) => {
 });
 
 // API: Marcar notificações como lidas
-app.post('/api/notificacoes/marcar-lidas', requireLogin, (req, res) => {
+app.post('/api/notificacoes/marcar-lidas', requireLogin, async (req, res) => {
     try {
-        db.prepare('UPDATE notificacoes SET lida = 1 WHERE usuario_id = ? AND lida = 0').run(req.session.userId);
+        await db.prepare('UPDATE notificacoes SET lida = 1 WHERE usuario_id = ? AND lida = 0').run(req.session.userId);
         res.json({ success: true });
     } catch(err) {
         res.json({ success: false });
@@ -4829,10 +4830,10 @@ app.post('/api/notificacoes/marcar-lidas', requireLogin, (req, res) => {
 });
 
 // API: Marcar uma notificação específica como lida (read_notif)
-app.post('/api/notificacoes/marcar-lida/:id', requireLogin, (req, res) => {
+app.post('/api/notificacoes/marcar-lida/:id', requireLogin, async (req, res) => {
     try {
         const notifId = req.params.id;
-        db.prepare('UPDATE notificacoes SET lida = 1 WHERE id = ? AND usuario_id = ?').run(notifId, req.session.userId);
+        await db.prepare('UPDATE notificacoes SET lida = 1 WHERE id = ? AND usuario_id = ?').run(notifId, req.session.userId);
         res.json({ success: true });
     } catch(err) {
         res.json({ success: false });
@@ -4840,11 +4841,11 @@ app.post('/api/notificacoes/marcar-lida/:id', requireLogin, (req, res) => {
 });
 
 // API: Excluir uma notificação
-app.post('/api/notificacoes/excluir', requireLogin, (req, res) => {
+app.post('/api/notificacoes/excluir', requireLogin, async (req, res) => {
     try {
         const { id } = req.body;
         if (!id) return res.json({ success: false, message: 'ID obrigatório.' });
-        const result = db.prepare('DELETE FROM notificacoes WHERE id = ? AND usuario_id = ?').run(id, req.session.userId);
+        const result = await db.prepare('DELETE FROM notificacoes WHERE id = ? AND usuario_id = ?').run(id, req.session.userId);
         if (result.changes === 0) return res.json({ success: false, message: 'Notificação não encontrada.' });
         res.json({ success: true });
     } catch(err) {
@@ -4854,22 +4855,22 @@ app.post('/api/notificacoes/excluir', requireLogin, (req, res) => {
 });
 
 // API: Excluir todas as notificações
-app.post('/api/notificacoes/excluir-todas', requireLogin, (req, res) => {
+app.post('/api/notificacoes/excluir-todas', requireLogin, async (req, res) => {
     try {
-        db.prepare('DELETE FROM notificacoes WHERE usuario_id = ?').run(req.session.userId);
+        await db.prepare('DELETE FROM notificacoes WHERE usuario_id = ?').run(req.session.userId);
         res.json({ success: true });
     } catch(err) {
         res.json({ success: false, message: 'Erro interno.' });
     }
 });
 
-app.get('/logout.php', (req, res) => {
+app.get('/logout.php', async (req, res) => {
     req.session.destroy();
     res.redirect('/index.php');
 });
 
 // API: Logout
-app.post('/api/logout', (req, res) => {
+app.post('/api/logout', async (req, res) => {
     req.session.destroy();
     return res.json({ success: true, redirect: '/index.php' });
 });
@@ -4896,7 +4897,7 @@ function saveBase64Images(imagesArray, folder) {
 }
 
 // API: Enviar sugestão
-app.post('/api/sugestao', requireLogin, (req, res) => {
+app.post('/api/sugestao', requireLogin, async (req, res) => {
     try {
         const { titulo, descricao, imagens } = req.body;
         if (!titulo || !titulo.trim()) return res.json({ success: false, message: 'Título obrigatório.' });
@@ -4910,7 +4911,7 @@ app.post('/api/sugestao', requireLogin, (req, res) => {
             if (saved.length > 0) imagensJson = JSON.stringify(saved);
         }
 
-        db.prepare('INSERT INTO sugestoes (usuario_id, titulo, descricao, imagens) VALUES (?, ?, ?, ?)').run(
+        await db.prepare('INSERT INTO sugestoes (usuario_id, titulo, descricao, imagens) VALUES (?, ?, ?, ?)').run(
             req.session.userId, titulo.trim(), descricao.trim(), imagensJson
         );
         res.json({ success: true, message: 'Sugestão enviada com sucesso!' });
@@ -4921,7 +4922,7 @@ app.post('/api/sugestao', requireLogin, (req, res) => {
 });
 
 // API: Enviar bug
-app.post('/api/bug', requireLogin, (req, res) => {
+app.post('/api/bug', requireLogin, async (req, res) => {
     try {
         const { titulo, descricao, imagens } = req.body;
         if (!titulo || !titulo.trim()) return res.json({ success: false, message: 'Título obrigatório.' });
@@ -4935,7 +4936,7 @@ app.post('/api/bug', requireLogin, (req, res) => {
             if (saved.length > 0) imagensJson = JSON.stringify(saved);
         }
 
-        db.prepare('INSERT INTO bugs (usuario_id, titulo, descricao, imagens) VALUES (?, ?, ?, ?)').run(
+        await db.prepare('INSERT INTO bugs (usuario_id, titulo, descricao, imagens) VALUES (?, ?, ?, ?)').run(
             req.session.userId, titulo.trim(), descricao.trim(), imagensJson
         );
         res.json({ success: true, message: 'Bug reportado com sucesso!' });
@@ -4946,7 +4947,7 @@ app.post('/api/bug', requireLogin, (req, res) => {
 });
 
 // API Admin: Listar sugestões
-app.get('/api/admin/sugestoes', requireAdmin, (req, res) => {
+app.get('/api/admin/sugestoes', requireAdmin, async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = 15;
@@ -4954,8 +4955,8 @@ app.get('/api/admin/sugestoes', requireAdmin, (req, res) => {
         const filtro = req.query.filtro || 'todos';
         let where = '';
         if (filtro !== 'todos') where = " WHERE s.status = '" + filtro.replace(/'/g, '') + "'";
-        const total = db.prepare('SELECT COUNT(*) as c FROM sugestoes s' + where).get().c;
-        const sugestoes = db.prepare(`
+        const total = (await db.prepare('SELECT COUNT(*) as c FROM sugestoes s' + where).get()).c;
+        const sugestoes = await db.prepare(`
             SELECT s.*, u.nome as autor_nome, u.foto_perfil as autor_foto
             FROM sugestoes s JOIN usuarios u ON u.id = s.usuario_id
             ${where} ORDER BY s.criado_em DESC LIMIT ? OFFSET ?
@@ -4968,7 +4969,7 @@ app.get('/api/admin/sugestoes', requireAdmin, (req, res) => {
 });
 
 // API Admin: Listar bugs
-app.get('/api/admin/bugs', requireAdmin, (req, res) => {
+app.get('/api/admin/bugs', requireAdmin, async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = 15;
@@ -4976,8 +4977,8 @@ app.get('/api/admin/bugs', requireAdmin, (req, res) => {
         const filtro = req.query.filtro || 'todos';
         let where = '';
         if (filtro !== 'todos') where = " WHERE b.status = '" + filtro.replace(/'/g, '') + "'";
-        const total = db.prepare('SELECT COUNT(*) as c FROM bugs b' + where).get().c;
-        const bugs = db.prepare(`
+        const total = (await db.prepare('SELECT COUNT(*) as c FROM bugs b' + where).get()).c;
+        const bugs = await db.prepare(`
             SELECT b.*, u.nome as autor_nome, u.foto_perfil as autor_foto
             FROM bugs b JOIN usuarios u ON u.id = b.usuario_id
             ${where} ORDER BY b.criado_em DESC LIMIT ? OFFSET ?
@@ -4990,20 +4991,20 @@ app.get('/api/admin/bugs', requireAdmin, (req, res) => {
 });
 
 // API Admin: Alterar status de sugestão
-app.post('/api/admin/sugestao/status', requireAdmin, (req, res) => {
+app.post('/api/admin/sugestao/status', requireAdmin, async (req, res) => {
     try {
         const { id, status, resposta } = req.body;
         if (!id || !status) return res.json({ success: false, message: 'Dados insuficientes.' });
         const validStatus = ['nova', 'analisando', 'aprovada', 'implementada', 'rejeitada'];
         if (!validStatus.includes(status)) return res.json({ success: false, message: 'Status inválido.' });
-        db.prepare('UPDATE sugestoes SET status = ?, resposta_admin = ?, resolvido_por = ?, resolvido_em = ? WHERE id = ?').run(
+        await db.prepare('UPDATE sugestoes SET status = ?, resposta_admin = ?, resolvido_por = ?, resolvido_em = ? WHERE id = ?').run(
             status, resposta || null, req.session.userId, agora(), id
         );
         // Notificar o autor
-        const sug = db.prepare('SELECT usuario_id, titulo FROM sugestoes WHERE id = ?').get(id);
+        const sug = await db.prepare('SELECT usuario_id, titulo FROM sugestoes WHERE id = ?').get(id);
         if (sug) {
             const statusLabels = {nova:'Nova', analisando:'Em Análise', aprovada:'Aprovada', implementada:'Implementada', rejeitada:'Rejeitada'};
-            db.prepare('INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem) VALUES (?, ?, ?, ?)').run(
+            await db.prepare('INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem) VALUES (?, ?, ?, ?)').run(
                 sug.usuario_id, 'sugestao_resposta', 'Sugestão atualizada',
                 'Sua sugestão "' + sug.titulo.substring(0, 50) + '" foi atualizada para: ' + (statusLabels[status] || status) + (resposta ? ' — ' + resposta.substring(0, 100) : '')
             );
@@ -5016,20 +5017,20 @@ app.post('/api/admin/sugestao/status', requireAdmin, (req, res) => {
 });
 
 // API Admin: Alterar status de bug
-app.post('/api/admin/bug/status', requireAdmin, (req, res) => {
+app.post('/api/admin/bug/status', requireAdmin, async (req, res) => {
     try {
         const { id, status, resposta } = req.body;
         if (!id || !status) return res.json({ success: false, message: 'Dados insuficientes.' });
         const validStatus = ['novo', 'analisando', 'corrigido', 'nao_reproduzivel', 'rejeitado'];
         if (!validStatus.includes(status)) return res.json({ success: false, message: 'Status inválido.' });
-        db.prepare('UPDATE bugs SET status = ?, resposta_admin = ?, resolvido_por = ?, resolvido_em = ? WHERE id = ?').run(
+        await db.prepare('UPDATE bugs SET status = ?, resposta_admin = ?, resolvido_por = ?, resolvido_em = ? WHERE id = ?').run(
             status, resposta || null, req.session.userId, agora(), id
         );
         // Notificar o autor
-        const bug = db.prepare('SELECT usuario_id, titulo FROM bugs WHERE id = ?').get(id);
+        const bug = await db.prepare('SELECT usuario_id, titulo FROM bugs WHERE id = ?').get(id);
         if (bug) {
             const statusLabels = {novo:'Novo', analisando:'Em Análise', corrigido:'Corrigido', nao_reproduzivel:'Não Reproduzível', rejeitado:'Rejeitado'};
-            db.prepare('INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem) VALUES (?, ?, ?, ?)').run(
+            await db.prepare('INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem) VALUES (?, ?, ?, ?)').run(
                 bug.usuario_id, 'bug_resposta', 'Bug atualizado',
                 'Seu bug "' + bug.titulo.substring(0, 50) + '" foi atualizado para: ' + (statusLabels[status] || status) + (resposta ? ' — ' + resposta.substring(0, 100) : '')
             );
@@ -5042,10 +5043,10 @@ app.post('/api/admin/bug/status', requireAdmin, (req, res) => {
 });
 
 // API Admin: Excluir sugestão
-app.post('/api/admin/sugestao/excluir', requireAdmin, (req, res) => {
+app.post('/api/admin/sugestao/excluir', requireAdmin, async (req, res) => {
     try {
         const { id } = req.body;
-        const sug = db.prepare('SELECT imagens FROM sugestoes WHERE id = ?').get(id);
+        const sug = await db.prepare('SELECT imagens FROM sugestoes WHERE id = ?').get(id);
         if (sug && sug.imagens) {
             try {
                 JSON.parse(sug.imagens).forEach(img => {
@@ -5054,7 +5055,7 @@ app.post('/api/admin/sugestao/excluir', requireAdmin, (req, res) => {
                 });
             } catch(e) {}
         }
-        db.prepare('DELETE FROM sugestoes WHERE id = ?').run(id);
+        await db.prepare('DELETE FROM sugestoes WHERE id = ?').run(id);
         res.json({ success: true });
     } catch(err) {
         console.error('Erro excluir sugestão:', err);
@@ -5063,10 +5064,10 @@ app.post('/api/admin/sugestao/excluir', requireAdmin, (req, res) => {
 });
 
 // API Admin: Excluir bug
-app.post('/api/admin/bug/excluir', requireAdmin, (req, res) => {
+app.post('/api/admin/bug/excluir', requireAdmin, async (req, res) => {
     try {
         const { id } = req.body;
-        const bug = db.prepare('SELECT imagens FROM bugs WHERE id = ?').get(id);
+        const bug = await db.prepare('SELECT imagens FROM bugs WHERE id = ?').get(id);
         if (bug && bug.imagens) {
             try {
                 JSON.parse(bug.imagens).forEach(img => {
@@ -5075,7 +5076,7 @@ app.post('/api/admin/bug/excluir', requireAdmin, (req, res) => {
                 });
             } catch(e) {}
         }
-        db.prepare('DELETE FROM bugs WHERE id = ?').run(id);
+        await db.prepare('DELETE FROM bugs WHERE id = ?').run(id);
         res.json({ success: true });
     } catch(err) {
         console.error('Erro excluir bug:', err);
@@ -5086,14 +5087,14 @@ app.post('/api/admin/bug/excluir', requireAdmin, (req, res) => {
 // ===== ANÚNCIOS =====
 
 // Listar anúncios (público - qualquer usuário logado)
-app.get('/api/anuncios', requireLogin, (req, res) => {
+app.get('/api/anuncios', requireLogin, async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = 20;
         const offset = (page - 1) * limit;
-        const total = db.prepare('SELECT COUNT(*) AS total FROM anuncios').get().total;
+        const total = (await db.prepare('SELECT COUNT(*) AS total FROM anuncios').get()).total;
         const totalPages = Math.ceil(total / limit) || 1;
-        const anuncios = db.prepare(`
+        const anuncios = await db.prepare(`
             SELECT a.*, u.nome AS admin_nome, u.foto_perfil AS admin_foto
             FROM anuncios a
             LEFT JOIN usuarios u ON u.id = a.admin_id
@@ -5108,11 +5109,11 @@ app.get('/api/anuncios', requireLogin, (req, res) => {
 });
 
 // Detalhe de um anúncio
-app.get('/api/anuncio/:id', requireLogin, (req, res) => {
+app.get('/api/anuncio/:id', requireLogin, async (req, res) => {
     try {
         const id = parseInt(req.params.id);
         if (!id) return res.json({ success: false, message: 'ID inválido.' });
-        const anuncio = db.prepare(`
+        const anuncio = await db.prepare(`
             SELECT a.*, u.nome AS admin_nome, u.foto_perfil AS admin_foto
             FROM anuncios a
             LEFT JOIN usuarios u ON u.id = a.admin_id
@@ -5120,8 +5121,8 @@ app.get('/api/anuncio/:id', requireLogin, (req, res) => {
         `).get(id);
         if (!anuncio) return res.json({ success: false, message: 'Anúncio não encontrado.' });
         // Anterior (mais recente) e próximo (mais antigo)
-        const anterior = db.prepare('SELECT id, titulo FROM anuncios WHERE criado_em > ? ORDER BY criado_em ASC LIMIT 1').get(anuncio.criado_em);
-        const proximo = db.prepare('SELECT id, titulo FROM anuncios WHERE criado_em < ? ORDER BY criado_em DESC LIMIT 1').get(anuncio.criado_em);
+        const anterior = await db.prepare('SELECT id, titulo FROM anuncios WHERE criado_em > ? ORDER BY criado_em ASC LIMIT 1').get(anuncio.criado_em);
+        const proximo = await db.prepare('SELECT id, titulo FROM anuncios WHERE criado_em < ? ORDER BY criado_em DESC LIMIT 1').get(anuncio.criado_em);
         res.json({ success: true, anuncio, anterior: anterior || null, proximo: proximo || null });
     } catch(err) {
         console.error('Erro detalhe anúncio:', err);
@@ -5130,14 +5131,14 @@ app.get('/api/anuncio/:id', requireLogin, (req, res) => {
 });
 
 // Listar anúncios (admin)
-app.get('/api/admin/anuncios', requireAdmin, (req, res) => {
+app.get('/api/admin/anuncios', requireAdmin, async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = 15;
         const offset = (page - 1) * limit;
-        const total = db.prepare('SELECT COUNT(*) AS total FROM anuncios').get().total;
+        const total = (await db.prepare('SELECT COUNT(*) AS total FROM anuncios').get()).total;
         const totalPages = Math.ceil(total / limit) || 1;
-        const anuncios = db.prepare(`
+        const anuncios = await db.prepare(`
             SELECT a.*, u.nome AS admin_nome, u.foto_perfil AS admin_foto
             FROM anuncios a
             LEFT JOIN usuarios u ON u.id = a.admin_id
@@ -5152,7 +5153,7 @@ app.get('/api/admin/anuncios', requireAdmin, (req, res) => {
 });
 
 // Criar anúncio e notificar todos os usuários
-app.post('/api/admin/anuncio/criar', requireAdmin, (req, res) => {
+app.post('/api/admin/anuncio/criar', requireAdmin, async (req, res) => {
     try {
         const { titulo, mensagem } = req.body;
         if (!titulo || !mensagem) return res.json({ success: false, message: 'Preencha título e mensagem.' });
@@ -5178,22 +5179,22 @@ app.post('/api/admin/anuncio/criar', requireAdmin, (req, res) => {
             }
         }
 
-        const result = db.prepare(`INSERT INTO anuncios (titulo, mensagem, foto, admin_id, criado_em) VALUES (?, ?, ?, ?, ${agora()})`).run(titulo, mensagem, fotoPath, req.session.userId);
+        const result = await db.prepare(`INSERT INTO anuncios (titulo, mensagem, foto, admin_id, criado_em) VALUES (?, ?, ?, ?, ${agora()})`).run(titulo, mensagem, fotoPath, req.session.userId);
         const anuncioId = result.lastInsertRowid;
 
         // Notificar todos os usuários ativos (não banidos)
-        const usuarios = db.prepare("SELECT id FROM usuarios WHERE banido != 1 OR banido IS NULL").all();
-        const insertNotif = db.prepare(`INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem, link, remetente_id, criado_em) VALUES (?, 'anuncio', ?, ?, ?, ?, ${agora()})`);
+        const usuarios = await db.prepare("SELECT id FROM usuarios WHERE banido != 1 OR banido IS NULL").all();
+        const insertNotif = await db.prepare(`INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem, link, remetente_id, criado_em) VALUES (?, 'anuncio', ?, ?, ?, ?, ${agora()})`);
         const notifTitulo = 'Nova notícia oficial: ' + titulo;
         const notifLink = '/anuncio.php?id=' + anuncioId;
         const notifMsgClean = mensagem.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
         const notifMsg = notifMsgClean.length > 200 ? notifMsgClean.substring(0, 200) + '...' : notifMsgClean;
-        const insertMany = db.transaction((users) => {
+        const insertMany = db.transaction(async (users) => {
             for (const u of users) {
-                insertNotif.run(u.id, notifTitulo, notifMsg, notifLink, req.session.userId);
+                await insertNotif.run(u.id, notifTitulo, notifMsg, notifLink, req.session.userId);
             }
         });
-        insertMany(usuarios);
+        await insertMany(usuarios);
 
         res.json({ success: true, id: result.lastInsertRowid, notificados: usuarios.length });
     } catch(err) {
@@ -5203,10 +5204,10 @@ app.post('/api/admin/anuncio/criar', requireAdmin, (req, res) => {
 });
 
 // Excluir anúncio
-app.post('/api/admin/anuncio/excluir', requireAdmin, (req, res) => {
+app.post('/api/admin/anuncio/excluir', requireAdmin, async (req, res) => {
     try {
         const { id } = req.body;
-        db.prepare('DELETE FROM anuncios WHERE id = ?').run(id);
+        await db.prepare('DELETE FROM anuncios WHERE id = ?').run(id);
         res.json({ success: true });
     } catch(err) {
         console.error('Erro excluir anúncio:', err);
@@ -5215,14 +5216,14 @@ app.post('/api/admin/anuncio/excluir', requireAdmin, (req, res) => {
 });
 
 // Editar anúncio (sem notificação)
-app.post('/api/admin/anuncio/editar', requireAdmin, (req, res) => {
+app.post('/api/admin/anuncio/editar', requireAdmin, async (req, res) => {
     try {
         const { id, titulo, mensagem, foto_base64, remover_foto } = req.body;
         if (!id || !titulo || !mensagem) return res.json({ success: false, message: 'Preencha título e mensagem.' });
         if (titulo.length > 100) return res.json({ success: false, message: 'Título muito longo (máx 100).' });
         if (mensagem.length > 10000) return res.json({ success: false, message: 'Mensagem muito longa.' });
 
-        const anuncio = db.prepare('SELECT * FROM anuncios WHERE id = ?').get(id);
+        const anuncio = await db.prepare('SELECT * FROM anuncios WHERE id = ?').get(id);
         if (!anuncio) return res.json({ success: false, message: 'Anúncio não encontrado.' });
 
         let fotoPath = anuncio.foto;
@@ -5255,7 +5256,7 @@ app.post('/api/admin/anuncio/editar', requireAdmin, (req, res) => {
             }
         }
 
-        db.prepare('UPDATE anuncios SET titulo = ?, mensagem = ?, foto = ? WHERE id = ?').run(titulo, mensagem, fotoPath, id);
+        await db.prepare('UPDATE anuncios SET titulo = ?, mensagem = ?, foto = ? WHERE id = ?').run(titulo, mensagem, fotoPath, id);
         res.json({ success: true });
     } catch(err) {
         console.error('Erro editar anúncio:', err);
@@ -5266,8 +5267,8 @@ app.post('/api/admin/anuncio/editar', requireAdmin, (req, res) => {
 // ===== COLHEITA FELIZ - API =====
 
 // Helper: garantir que o farm existe para um usuário
-function ensureColheitaFarm(userId) {
-    let farm = db.prepare('SELECT * FROM colheita_farms WHERE user_id = ?').get(userId);
+async function ensureColheitaFarm(userId) {
+    let farm = await db.prepare('SELECT * FROM colheita_farms WHERE user_id = ?').get(userId);
     if (!farm) {
         // Inicializar fazenda com 24 tiles no estado 3 (grama normal) e inventário com 10 sementes de feijão
         const initialFarm = {};
@@ -5276,10 +5277,10 @@ function ensureColheitaFarm(userId) {
         }
         const initialInventory = { seed_eijo: 10 };
         const now = Math.floor(Date.now() / 1000);
-        db.prepare('INSERT INTO colheita_farms (user_id, farm_data, inventory, level, xp, ouro, grid_size, last_updated, unlocked_tiles) VALUES (?, ?, ?, 1, 0, 100, 24, ?, ?)').run(
+        await db.prepare('INSERT INTO colheita_farms (user_id, farm_data, inventory, level, xp, ouro, grid_size, last_updated, unlocked_tiles) VALUES (?, ?, ?, 1, 0, 100, 24, ?, ?)').run(
             userId, JSON.stringify(initialFarm), JSON.stringify(initialInventory), now, '[0]'
         );
-        farm = db.prepare('SELECT * FROM colheita_farms WHERE user_id = ?').get(userId);
+        farm = await db.prepare('SELECT * FROM colheita_farms WHERE user_id = ?').get(userId);
     }
     return farm;
 }
@@ -5378,26 +5379,26 @@ function recalculateTileStates(farmData, nowMs) {
 }
 
 // GET /api/colheita/farm/:uid - Obter dados da fazenda
-app.get('/api/colheita/farm/:uid', requireLogin, (req, res) => {
+app.get('/api/colheita/farm/:uid', requireLogin, async (req, res) => {
     try {
         const targetUid = req.params.uid;
         const loggedUid = req.session.userId;
         const isOwner = (targetUid === loggedUid);
 
-        const farm = ensureColheitaFarm(targetUid);
-        const owner = db.prepare('SELECT id, nome, foto_perfil, sexo FROM usuarios WHERE id = ?').get(targetUid);
+        const farm = await ensureColheitaFarm(targetUid);
+        const owner = await db.prepare('SELECT id, nome, foto_perfil, sexo FROM usuarios WHERE id = ?').get(targetUid);
         if (!owner) return res.json({ success: false, message: 'Usuário não encontrado.' });
-        const loggedUser = db.prepare('SELECT id, nome, foto_perfil, sexo FROM usuarios WHERE id = ?').get(loggedUid);
+        const loggedUser = await db.prepare('SELECT id, nome, foto_perfil, sexo FROM usuarios WHERE id = ?').get(loggedUid);
 
         // Registrar visita se não for o dono
         if (!isOwner) {
-            db.prepare('INSERT INTO colheita_logs (farm_owner_id, visitor_id, action, details) VALUES (?, ?, ?, ?)').run(
+            await db.prepare('INSERT INTO colheita_logs (farm_owner_id, visitor_id, action, details) VALUES (?, ?, ?, ?)').run(
                 targetUid, loggedUid, 'visit', ''
             );
         }
 
         // Obter amigos para o painel de amigos
-        const friends = db.prepare(`
+        const friends = await db.prepare(`
             SELECT u.id, u.nome, u.foto_perfil, u.sexo
             FROM amizades a
             JOIN usuarios u ON (CASE WHEN a.remetente_id = ? THEN a.destinatario_id ELSE a.remetente_id END) = u.id
@@ -5407,7 +5408,7 @@ app.get('/api/colheita/farm/:uid', requireLogin, (req, res) => {
 
         // Para cada amigo, obter seus dados de fazenda
         const friendsData = friends.map(f => {
-            const ff = ensureColheitaFarm(f.id);
+            const ff = await ensureColheitaFarm(f.id);
             return {
                 id: f.id,
                 nome: f.nome,
@@ -5419,7 +5420,7 @@ app.get('/api/colheita/farm/:uid', requireLogin, (req, res) => {
         });
 
         // Obter logs recentes
-        const logs = db.prepare(`
+        const logs = await db.prepare(`
             SELECT cl.action, cl.details, cl.created_at, u.nome, u.foto_perfil, u.sexo
             FROM colheita_logs cl
             JOIN usuarios u ON cl.visitor_id = u.id
@@ -5436,7 +5437,7 @@ app.get('/api/colheita/farm/:uid', requireLogin, (req, res) => {
             if (farmXP >= needed) { farmXP -= needed; farmLevel++; } else break;
         }
         if (farmLevel !== (farm.level || 1) || farmXP !== (farm.xp || 0)) {
-            db.prepare('UPDATE colheita_farms SET level = ?, xp = ? WHERE user_id = ?').run(farmLevel, farmXP, targetUid);
+            await db.prepare('UPDATE colheita_farms SET level = ?, xp = ? WHERE user_id = ?').run(farmLevel, farmXP, targetUid);
         }
 
         // Recalcular estados dos tiles baseado em timestamps do servidor
@@ -5446,7 +5447,7 @@ app.get('/api/colheita/farm/:uid', requireLogin, (req, res) => {
         recalculateTileStates(farmDataParsed, nowMs);
         // Salvar estados recalculados
         const nowSec = Math.floor(nowMs / 1000);
-        db.prepare('UPDATE colheita_farms SET farm_data = ?, last_updated = ? WHERE user_id = ?').run(
+        await db.prepare('UPDATE colheita_farms SET farm_data = ?, last_updated = ? WHERE user_id = ?').run(
             JSON.stringify(farmDataParsed), nowSec, targetUid
         );
 
@@ -5473,7 +5474,7 @@ app.get('/api/colheita/farm/:uid', requireLogin, (req, res) => {
             kutcoin: 0,
             gridSize: farm.grid_size,
             unlockedTiles: JSON.parse(farm.unlocked_tiles || '[0]'),
-            tileReqs: db.prepare('SELECT * FROM colheita_tile_reqs ORDER BY tile_id').all(),
+            tileReqs: await db.prepare('SELECT * FROM colheita_tile_reqs ORDER BY tile_id').all(),
             lastUpdated: farm.last_updated,
             serverNow: Math.floor(Date.now() / 1000),
             seedsConfig: SEEDS_CONFIG,
@@ -5496,7 +5497,7 @@ app.get('/api/colheita/farm/:uid', requireLogin, (req, res) => {
 });
 
 // POST /api/colheita/unlock-tile - Comprar/liberar um tile
-app.post('/api/colheita/unlock-tile', requireLogin, (req, res) => {
+app.post('/api/colheita/unlock-tile', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const tile_id = parseInt(req.body.tile_id);
@@ -5506,7 +5507,7 @@ app.post('/api/colheita/unlock-tile', requireLogin, (req, res) => {
             return res.json({ success: false, message: 'Tile inválido.' });
         }
 
-        const farm = ensureColheitaFarm(userId);
+        const farm = await ensureColheitaFarm(userId);
         let unlockedTiles = JSON.parse(farm.unlocked_tiles || '[0]');
 
         if (unlockedTiles.includes(tile_id)) {
@@ -5519,7 +5520,7 @@ app.post('/api/colheita/unlock-tile', requireLogin, (req, res) => {
         }
 
         // Buscar requisitos
-        const tileConfig = db.prepare('SELECT * FROM colheita_tile_reqs WHERE tile_id = ?').get(tile_id);
+        const tileConfig = await db.prepare('SELECT * FROM colheita_tile_reqs WHERE tile_id = ?').get(tile_id);
         if (!tileConfig) {
             return res.json({ success: false, message: 'Configuração do tile não encontrada.' });
         }
@@ -5539,7 +5540,7 @@ app.post('/api/colheita/unlock-tile', requireLogin, (req, res) => {
         unlockedTiles.sort((a, b) => a - b);
         const newOuro = farm.ouro - tileConfig.preco;
 
-        db.prepare('UPDATE colheita_farms SET unlocked_tiles = ?, ouro = ? WHERE user_id = ?').run(
+        await db.prepare('UPDATE colheita_farms SET unlocked_tiles = ?, ouro = ? WHERE user_id = ?').run(
             JSON.stringify(unlockedTiles), newOuro, userId
         );
 
@@ -5551,7 +5552,7 @@ app.post('/api/colheita/unlock-tile', requireLogin, (req, res) => {
 });
 
 // POST /api/colheita/save - Salvar fazenda (dono) — Validado pelo servidor com timestamps
-app.post('/api/colheita/save', requireLogin, (req, res) => {
+app.post('/api/colheita/save', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { farm_data } = req.body;
@@ -5560,7 +5561,7 @@ app.post('/api/colheita/save', requireLogin, (req, res) => {
 
         const nowMs = Date.now();
         const nowSec = Math.floor(nowMs / 1000);
-        const farm = ensureColheitaFarm(userId);
+        const farm = await ensureColheitaFarm(userId);
         const serverData = JSON.parse(farm.farm_data);
         const serverInv = JSON.parse(farm.inventory);
 
@@ -5672,7 +5673,7 @@ app.post('/api/colheita/save', requireLogin, (req, res) => {
         recalculateTileStates(serverData, nowMs);
 
         // Salvar dados validados (inventário é do servidor, não do cliente)
-        db.prepare('UPDATE colheita_farms SET farm_data = ?, inventory = ?, last_updated = ? WHERE user_id = ?').run(
+        await db.prepare('UPDATE colheita_farms SET farm_data = ?, inventory = ?, last_updated = ? WHERE user_id = ?').run(
             JSON.stringify(serverData), JSON.stringify(serverInv), nowSec, userId
         );
         res.json({ success: true, inventory: serverInv });
@@ -5684,17 +5685,17 @@ app.post('/api/colheita/save', requireLogin, (req, res) => {
 
 // POST /api/colheita/save-visitor - Salvar fazenda de visitante (regar)
 // Validação: só permite regar tiles (state 3/4 → 2)
-app.post('/api/colheita/save-visitor', requireLogin, (req, res) => {
+app.post('/api/colheita/save-visitor', requireLogin, async (req, res) => {
     try {
         const { farm_owner_id, farm_data } = req.body;
         const visitorId = req.session.userId;
         if (farm_owner_id === visitorId) return res.json({ success: false, message: 'Não pode auto-salvar como visitante.' });
         if (!farm_owner_id || !farm_data) return res.json({ success: false, message: 'Dados inválidos.' });
 
-        const ownerFarm = db.prepare('SELECT * FROM colheita_farms WHERE user_id = ?').get(farm_owner_id);
+        const ownerFarm = await db.prepare('SELECT * FROM colheita_farms WHERE user_id = ?').get(farm_owner_id);
         if (!ownerFarm) return res.json({ success: false, message: 'Fazenda não encontrada.' });
 
-        const amizade = db.prepare(`SELECT id FROM amizades WHERE status = 'aceita' AND ((remetente_id = ? AND destinatario_id = ?) OR (remetente_id = ? AND destinatario_id = ?))`).get(visitorId, farm_owner_id, farm_owner_id, visitorId);
+        const amizade = await db.prepare(`SELECT id FROM amizades WHERE status = 'aceita' AND ((remetente_id = ? AND destinatario_id = ?) OR (remetente_id = ? AND destinatario_id = ?))`).get(visitorId, farm_owner_id, farm_owner_id, visitorId);
         if (!amizade) return res.json({ success: false, message: 'Apenas amigos podem interagir.' });
 
         // Validar: apenas permitir regar (state 3/4 → 2)
@@ -5713,7 +5714,7 @@ app.post('/api/colheita/save-visitor', requireLogin, (req, res) => {
             }
             // Todas as outras mudanças do visitante são ignoradas
         }
-        db.prepare('UPDATE colheita_farms SET farm_data = ?, last_updated = ? WHERE user_id = ?').run(
+        await db.prepare('UPDATE colheita_farms SET farm_data = ?, last_updated = ? WHERE user_id = ?').run(
             JSON.stringify(serverData), nowSec, farm_owner_id
         );
         res.json({ success: true });
@@ -5724,7 +5725,7 @@ app.post('/api/colheita/save-visitor', requireLogin, (req, res) => {
 });
 
 // POST /api/colheita/buy - Comprar item (validado no servidor)
-app.post('/api/colheita/buy', requireLogin, (req, res) => {
+app.post('/api/colheita/buy', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { item_id, quantity } = req.body;
@@ -5734,15 +5735,15 @@ app.post('/api/colheita/buy', requireLogin, (req, res) => {
         const seed = SEEDS_CONFIG[String(item_id)];
         if (!seed) return res.json({ success: false, message: 'Item não encontrado.' });
 
-        const farm = ensureColheitaFarm(userId);
+        const farm = await ensureColheitaFarm(userId);
         const totalPrice = seed.preco_compra * qty;
 
         if (seed.moeda === 'gold' || seed.moeda === 'ouro') {
             if (farm.ouro < totalPrice) return res.json({ success: false, message: 'Ouro insuficiente.' });
             const inv = JSON.parse(farm.inventory);
             inv[String(item_id)] = (inv[String(item_id)] || 0) + qty;
-            db.prepare('UPDATE colheita_farms SET ouro = ouro - ?, inventory = ? WHERE user_id = ?').run(totalPrice, JSON.stringify(inv), userId);
-            const updated = ensureColheitaFarm(userId);
+            await db.prepare('UPDATE colheita_farms SET ouro = ouro - ?, inventory = ? WHERE user_id = ?').run(totalPrice, JSON.stringify(inv), userId);
+            const updated = await ensureColheitaFarm(userId);
             return res.json({ success: true, ouro: updated.ouro, inventory: JSON.parse(updated.inventory) });
         } else {
             // kutcoin etc — expandir conforme necessário
@@ -5755,7 +5756,7 @@ app.post('/api/colheita/buy', requireLogin, (req, res) => {
 });
 
 // POST /api/colheita/sell - Vender item (validado no servidor)
-app.post('/api/colheita/sell', requireLogin, (req, res) => {
+app.post('/api/colheita/sell', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { item_id, quantity } = req.body;
@@ -5765,7 +5766,7 @@ app.post('/api/colheita/sell', requireLogin, (req, res) => {
         const seed = SEEDS_CONFIG[String(item_id)];
         if (!seed) return res.json({ success: false, message: 'Item não encontrado.' });
 
-        const farm = ensureColheitaFarm(userId);
+        const farm = await ensureColheitaFarm(userId);
         const inv = JSON.parse(farm.inventory);
         const have = inv[String(item_id)] || 0;
         if (have < qty) return res.json({ success: false, message: 'Quantidade insuficiente.' });
@@ -5774,8 +5775,8 @@ app.post('/api/colheita/sell', requireLogin, (req, res) => {
         inv[String(item_id)] = have - qty;
         if (inv[String(item_id)] <= 0) delete inv[String(item_id)];
 
-        db.prepare('UPDATE colheita_farms SET ouro = ouro + ?, inventory = ? WHERE user_id = ?').run(totalPrice, JSON.stringify(inv), userId);
-        const updated = ensureColheitaFarm(userId);
+        await db.prepare('UPDATE colheita_farms SET ouro = ouro + ?, inventory = ? WHERE user_id = ?').run(totalPrice, JSON.stringify(inv), userId);
+        const updated = await ensureColheitaFarm(userId);
         return res.json({ success: true, ouro: updated.ouro, inventory: JSON.parse(updated.inventory) });
     } catch(err) {
         console.error('Erro vender colheita:', err);
@@ -5784,7 +5785,7 @@ app.post('/api/colheita/sell', requireLogin, (req, res) => {
 });
 
 // POST /api/colheita/use-fertilizer - Usar fertilizante (validado no servidor)
-app.post('/api/colheita/use-fertilizer', requireLogin, (req, res) => {
+app.post('/api/colheita/use-fertilizer', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { tile_id, fert_key } = req.body;
@@ -5794,7 +5795,7 @@ app.post('/api/colheita/use-fertilizer', requireLogin, (req, res) => {
         const fert = FERTILIZERS_CONFIG[fertId];
         if (!fert) return res.json({ success: false, message: 'Fertilizante não encontrado.' });
 
-        const farm = ensureColheitaFarm(userId);
+        const farm = await ensureColheitaFarm(userId);
         const farmData = JSON.parse(farm.farm_data);
         const inv = JSON.parse(farm.inventory);
         const tile = farmData[tile_id];
@@ -5846,7 +5847,7 @@ app.post('/api/colheita/use-fertilizer', requireLogin, (req, res) => {
         recalculateTileStates(farmData, nowMs);
 
         const nowSec = Math.floor(nowMs / 1000);
-        db.prepare('UPDATE colheita_farms SET farm_data = ?, inventory = ?, last_updated = ? WHERE user_id = ?').run(
+        await db.prepare('UPDATE colheita_farms SET farm_data = ?, inventory = ?, last_updated = ? WHERE user_id = ?').run(
             JSON.stringify(farmData), JSON.stringify(inv), nowSec, userId
         );
         res.json({ success: true, inventory: inv, farm_data: farmData, fert_used: fertId, reducao: realReducao });
@@ -5857,13 +5858,13 @@ app.post('/api/colheita/use-fertilizer', requireLogin, (req, res) => {
 });
 
 // POST /api/colheita/harvest - Colher planta (XP e ouro validados + timestamp verificado)
-app.post('/api/colheita/harvest', requireLogin, (req, res) => {
+app.post('/api/colheita/harvest', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { tile_id, amount } = req.body;
         if (tile_id === undefined) return res.json({ success: false, message: 'Tile inválido.' });
 
-        const farm = ensureColheitaFarm(userId);
+        const farm = await ensureColheitaFarm(userId);
         const farmData = JSON.parse(farm.farm_data);
         const nowMs = Date.now();
 
@@ -5922,14 +5923,14 @@ app.post('/api/colheita/harvest', requireLogin, (req, res) => {
             }
         }
 
-        const xpResult = addXPToFarm(userId, xpGain);
+        const xpResult = await addXPToFarm(userId, xpGain);
 
         const nowSec = Math.floor(nowMs / 1000);
-        db.prepare('UPDATE colheita_farms SET farm_data = ?, inventory = ?, ouro = ouro + ?, last_updated = ? WHERE user_id = ?').run(
+        await db.prepare('UPDATE colheita_farms SET farm_data = ?, inventory = ?, ouro = ouro + ?, last_updated = ? WHERE user_id = ?').run(
             JSON.stringify(farmData), JSON.stringify(inv), ouroGain, nowSec, userId
         );
 
-        const updated = ensureColheitaFarm(userId);
+        const updated = await ensureColheitaFarm(userId);
         return res.json({
             success: true,
             harvested: harvestAmount,
@@ -5951,17 +5952,17 @@ app.post('/api/colheita/harvest', requireLogin, (req, res) => {
 const visitorActionLimiter = rateLimit({ windowMs: 1 * 60 * 1000, max: 30, message: { success: false, message: 'Muitas ações. Aguarde.' }, standardHeaders: true, legacyHeaders: false });
 
 // POST /api/colheita/visitor-action - Ações de visitante (roubar/ajudar)
-app.post('/api/colheita/visitor-action', requireLogin, visitorActionLimiter, (req, res) => {
+app.post('/api/colheita/visitor-action', requireLogin, visitorActionLimiter, async (req, res) => {
     try {
         const { farm_owner_id, type, tile_id } = req.body;
         const visitorId = req.session.userId;
         if (farm_owner_id === visitorId) return res.json({ success: false, message: 'Ação inválida.' });
 
         // Verificar amizade obrigatória
-        const amizade = db.prepare(`SELECT id FROM amizades WHERE status = 'aceita' AND ((remetente_id = ? AND destinatario_id = ?) OR (remetente_id = ? AND destinatario_id = ?))`).get(visitorId, farm_owner_id, farm_owner_id, visitorId);
+        const amizade = await db.prepare(`SELECT id FROM amizades WHERE status = 'aceita' AND ((remetente_id = ? AND destinatario_id = ?) OR (remetente_id = ? AND destinatario_id = ?))`).get(visitorId, farm_owner_id, farm_owner_id, visitorId);
         if (!amizade) return res.json({ success: false, message: 'Apenas amigos podem interagir.' });
 
-        const farm = ensureColheitaFarm(farm_owner_id);
+        const farm = await ensureColheitaFarm(farm_owner_id);
         const farmData = JSON.parse(farm.farm_data);
         const nowMs = Date.now();
         const nowSec = Math.floor(nowMs / 1000);
@@ -5990,19 +5991,19 @@ app.post('/api/colheita/visitor-action', requireLogin, visitorActionLimiter, (re
             tile.harvested = (tile.harvested || 0) + stealAmount;
 
             // Salvar farm do dono
-            db.prepare('UPDATE colheita_farms SET farm_data = ?, last_updated = ? WHERE user_id = ?').run(
+            await db.prepare('UPDATE colheita_farms SET farm_data = ?, last_updated = ? WHERE user_id = ?').run(
                 JSON.stringify(farmData), nowSec, farm_owner_id);
 
             // Salvar inventário do visitante
-            const visitorFarm = ensureColheitaFarm(visitorId);
+            const visitorFarm = await ensureColheitaFarm(visitorId);
             const visitorInv = JSON.parse(visitorFarm.inventory);
             visitorInv[tile.planted] = (visitorInv[tile.planted] || 0) + stealAmount;
-            addXPToFarm(visitorId, 5);
-            db.prepare('UPDATE colheita_farms SET inventory = ? WHERE user_id = ?').run(
+            await addXPToFarm(visitorId, 5);
+            await db.prepare('UPDATE colheita_farms SET inventory = ? WHERE user_id = ?').run(
                 JSON.stringify(visitorInv), visitorId);
 
             // Log
-            db.prepare('INSERT INTO colheita_logs (farm_owner_id, visitor_id, action, details) VALUES (?, ?, ?, ?)').run(
+            await db.prepare('INSERT INTO colheita_logs (farm_owner_id, visitor_id, action, details) VALUES (?, ?, ?, ?)').run(
                 farm_owner_id, visitorId, 'steal', `Roubou ${stealAmount} ${seed.nome}`
             );
 
@@ -6017,21 +6018,21 @@ app.post('/api/colheita/visitor-action', requireLogin, visitorActionLimiter, (re
             if (!tile || (tile.state !== 3 && tile.state !== 4)) return res.json({ success: false, msg: 'Este tile não precisa de ajuda.' });
 
             // Verificar se já ajudou este tile (evita XP infinito)
-            const alreadyHelped = db.prepare(`SELECT id FROM colheita_logs WHERE visitor_id = ? AND farm_owner_id = ? AND action = 'help' AND details = ? AND created_at >= datetime('now','-3 hours','-1 day')`).get(visitorId, farm_owner_id, `tile_${tileIdInt}`);
+            const alreadyHelped = await db.prepare(`SELECT id FROM colheita_logs WHERE visitor_id = ? AND farm_owner_id = ? AND action = 'help' AND details = ? AND created_at >= datetime('now','-3 hours','-1 day')`).get(visitorId, farm_owner_id, `tile_${tileIdInt}`);
             if (alreadyHelped) return res.json({ success: false, msg: 'Você já ajudou este tile hoje.' });
 
             // Aplicar rega
             tile.state = 2;
             tile.watered_at = nowMs;
-            db.prepare('UPDATE colheita_farms SET farm_data = ?, last_updated = ? WHERE user_id = ?').run(
+            await db.prepare('UPDATE colheita_farms SET farm_data = ?, last_updated = ? WHERE user_id = ?').run(
                 JSON.stringify(farmData), nowSec, farm_owner_id);
 
             // Log de ajuda (com tile_id para evitar repetição)
-            db.prepare('INSERT INTO colheita_logs (farm_owner_id, visitor_id, action, details) VALUES (?, ?, ?, ?)').run(
+            await db.prepare('INSERT INTO colheita_logs (farm_owner_id, visitor_id, action, details) VALUES (?, ?, ?, ?)').run(
                 farm_owner_id, visitorId, 'help', `tile_${tileIdInt}`
             );
             // +1 XP para o visitante
-            addXPToFarm(visitorId, 1);
+            await addXPToFarm(visitorId, 1);
             res.json({ success: true, status: 'ok' });
         } else {
             res.json({ success: false, message: 'Ação desconhecida.' });
@@ -6043,9 +6044,9 @@ app.post('/api/colheita/visitor-action', requireLogin, visitorActionLimiter, (re
 });
 
 // GET /api/colheita/sync/:uid - Sincronizar fazenda (visitante polling)
-app.get('/api/colheita/sync/:uid', requireLogin, (req, res) => {
+app.get('/api/colheita/sync/:uid', requireLogin, async (req, res) => {
     try {
-        const farm = ensureColheitaFarm(req.params.uid);
+        const farm = await ensureColheitaFarm(req.params.uid);
         const farmData = JSON.parse(farm.farm_data);
         const nowMs = Date.now();
         migrateTimestamps(farmData, (farm.last_updated || Math.floor(nowMs / 1000)) * 1000);
@@ -6063,34 +6064,34 @@ app.get('/api/colheita/sync/:uid', requireLogin, (req, res) => {
 });
 
 // GET /api/colheita/seeds-config - Obter configuração de sementes
-app.get('/api/colheita/seeds-config', requireLogin, (req, res) => {
+app.get('/api/colheita/seeds-config', requireLogin, async (req, res) => {
     res.json({ success: true, seeds: SEEDS_CONFIG });
 });
 
 // GET /api/colheita/fertilizers-config - Obter configuração de fertilizantes
-app.get('/api/colheita/fertilizers-config', requireLogin, (req, res) => {
+app.get('/api/colheita/fertilizers-config', requireLogin, async (req, res) => {
     res.json({ success: true, fertilizers: FERTILIZERS_CONFIG });
 });
 
 // ===== COMUNIDADES - API =====
 
 // GET /api/user-comunidades/:uid - Listar comunidades de um usuário
-app.get('/api/user-comunidades/:uid', requireLogin, (req, res) => {
+app.get('/api/user-comunidades/:uid', requireLogin, async (req, res) => {
     try {
         const uid = String(req.params.uid);
         const userId = String(req.session.userId);
         const isOwner = (uid === userId);
 
         // Verificar bloqueio
-        if (!isOwner && isBlocked(userId, String(uid))) {
+        if (!isOwner && await isBlocked(userId, String(uid))) {
             return res.json({ success: false, message: 'Usuário não encontrado.', blocked: true });
         }
 
-        const perfil = db.prepare('SELECT id, nome, foto_perfil, sexo FROM usuarios WHERE id = ?').get(uid);
+        const perfil = await db.prepare('SELECT id, nome, foto_perfil, sexo FROM usuarios WHERE id = ?').get(uid);
         if (!perfil) return res.json({ success: false, message: 'Usuário não encontrado.' });
 
         // Comunidades que é dono
-        const owned = db.prepare(`
+        const owned = await db.prepare(`
             SELECT c.*, 
                 (SELECT COUNT(*) FROM comunidade_membros WHERE comunidade_id = c.id) as membros
             FROM comunidades c 
@@ -6099,7 +6100,7 @@ app.get('/api/user-comunidades/:uid', requireLogin, (req, res) => {
         `).all(uid);
 
         // Comunidades que participa (mas não é dono)
-        const joined = db.prepare(`
+        const joined = await db.prepare(`
             SELECT c.*, cm.entrou_em as membro_desde,
                 (SELECT COUNT(*) FROM comunidade_membros WHERE comunidade_id = c.id) as membros
             FROM comunidade_membros cm 
@@ -6118,13 +6119,13 @@ app.get('/api/user-comunidades/:uid', requireLogin, (req, res) => {
 });
 
 // GET /api/comunidade/:id - Detalhes de uma comunidade
-app.get('/api/comunidade/:id', requireLogin, (req, res) => {
+app.get('/api/comunidade/:id', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.id);
         const userId = req.session.userId;
 
         const tzOff = getTzOffset();
-        const comm = db.prepare(`
+        const comm = await db.prepare(`
             SELECT c.*, datetime(c.criado_em, '${tzOff}') as criado_em_local, u.nome as dono_nome, u.foto_perfil as dono_foto
             FROM comunidades c
             LEFT JOIN usuarios u ON u.id = c.dono_id
@@ -6134,26 +6135,26 @@ app.get('/api/comunidade/:id', requireLogin, (req, res) => {
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
         // Verificar se o usuário está bloqueado desta comunidade
-        const isBanned = db.prepare('SELECT id FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
+        const isBanned = await db.prepare('SELECT id FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
         if (isBanned) return res.json({ success: false, message: 'Você não pode acessar esta comunidade! Entre em contato com os donos da comunidade.' });
 
         // Contar membros
-        const membrosCount = db.prepare('SELECT COUNT(*) as total FROM comunidade_membros WHERE comunidade_id = ?').get(commId).total;
+        const membrosCount = (await db.prepare('SELECT COUNT(*) as total FROM comunidade_membros WHERE comunidade_id = ?').get(commId)).total;
 
         // Verificar se o usuário logado é membro
-        const membership = db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
+        const membership = await db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
         const isMember = !!membership;
         const isOwner = String(comm.dono_id) === String(userId);
         const cargo = membership ? membership.cargo : null;
 
         // Verificar se tem solicitação pendente
-        const isPending = !isMember && !!db.prepare('SELECT id FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
+        const isPending = !isMember && !!await db.prepare('SELECT id FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
 
         // Contar solicitações pendentes (para badge no menu - dono/moderador)
-        const pendingCount = (isOwner || (cargo === 'moderador')) ? db.prepare('SELECT COUNT(*) as c FROM comunidade_pendentes WHERE comunidade_id = ?').get(commId).c : 0;
+        const pendingCount = (isOwner || (cargo === 'moderador')) ? (await db.prepare('SELECT COUNT(*) as c FROM comunidade_pendentes WHERE comunidade_id = ?').get(commId)).c : 0;
 
         // Pegar últimos 9 membros (para sidebar)
-        const membros = db.prepare(`
+        const membros = await db.prepare(`
             SELECT u.id, u.nome, u.foto_perfil
             FROM comunidade_membros cm
             JOIN usuarios u ON u.id = cm.usuario_id
@@ -6163,7 +6164,7 @@ app.get('/api/comunidade/:id', requireLogin, (req, res) => {
         `).all(commId);
 
         // Pegar moderadores (nomes para info table)
-        const moderadores = db.prepare(`
+        const moderadores = await db.prepare(`
             SELECT u.id, u.nome
             FROM comunidade_membros cm
             JOIN usuarios u ON u.id = cm.usuario_id
@@ -6203,13 +6204,13 @@ app.get('/api/comunidade/:id', requireLogin, (req, res) => {
 });
 
 // GET /api/comunidade/:id/membros - Lista todos os membros de uma comunidade
-app.get('/api/comunidade/:id/membros', requireLogin, (req, res) => {
+app.get('/api/comunidade/:id/membros', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.id);
         const userId = req.session.userId;
         const tzOff = getTzOffset();
 
-        const comm = db.prepare(`
+        const comm = await db.prepare(`
             SELECT c.*, u.nome as dono_nome, u.foto_perfil as dono_foto
             FROM comunidades c
             LEFT JOIN usuarios u ON u.id = c.dono_id
@@ -6219,21 +6220,21 @@ app.get('/api/comunidade/:id/membros', requireLogin, (req, res) => {
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
         // Verificar se o usuário está bloqueado desta comunidade
-        const isBanned = db.prepare('SELECT id FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
+        const isBanned = await db.prepare('SELECT id FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
         if (isBanned) return res.json({ success: false, message: 'Você não pode acessar esta comunidade! Entre em contato com os donos da comunidade.' });
 
-        const membrosCount = db.prepare('SELECT COUNT(*) as total FROM comunidade_membros WHERE comunidade_id = ?').get(commId).total;
-        const membership = db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
+        const membrosCount = (await db.prepare('SELECT COUNT(*) as total FROM comunidade_membros WHERE comunidade_id = ?').get(commId)).total;
+        const membership = await db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
         const isMember = !!membership;
         const isOwner = String(comm.dono_id) === String(userId);
         const cargo = membership ? membership.cargo : null;
 
         // Verificar se tem solicitação pendente
-        const isPending = !isMember && !!db.prepare('SELECT id FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
-        const pendingCount = (isOwner || (cargo === 'moderador')) ? db.prepare('SELECT COUNT(*) as c FROM comunidade_pendentes WHERE comunidade_id = ?').get(commId).c : 0;
+        const isPending = !isMember && !!await db.prepare('SELECT id FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
+        const pendingCount = (isOwner || (cargo === 'moderador')) ? (await db.prepare('SELECT COUNT(*) as c FROM comunidade_pendentes WHERE comunidade_id = ?').get(commId)).c : 0;
 
         // Pegar TODOS os membros
-        const membros = db.prepare(`
+        const membros = await db.prepare(`
             SELECT u.id, u.nome, u.foto_perfil, cm.cargo, datetime(cm.entrou_em, '${tzOff}') as entrou_em
             FROM comunidade_membros cm
             JOIN usuarios u ON u.id = cm.usuario_id
@@ -6272,7 +6273,7 @@ app.get('/api/comunidade/:id/membros', requireLogin, (req, res) => {
 });
 
 // POST /api/comunidade/:id/expulsar - Expulsar membro da comunidade (dono ou moderador)
-app.post('/api/comunidade/:id/expulsar', requireLogin, (req, res) => {
+app.post('/api/comunidade/:id/expulsar', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.id);
         const userId = req.session.userId;
@@ -6280,11 +6281,11 @@ app.post('/api/comunidade/:id/expulsar', requireLogin, (req, res) => {
 
         if (!membro_id) return res.json({ success: false, message: 'ID do membro não informado.' });
 
-        const comm = db.prepare('SELECT * FROM comunidades WHERE id = ?').get(commId);
+        const comm = await db.prepare('SELECT * FROM comunidades WHERE id = ?').get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
         const isOwner = String(comm.dono_id) === String(userId);
-        const myMembership = db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
+        const myMembership = await db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
         const isModerador = myMembership && myMembership.cargo === 'moderador';
 
         if (!isOwner && !isModerador) {
@@ -6297,28 +6298,28 @@ app.post('/api/comunidade/:id/expulsar', requireLogin, (req, res) => {
         }
 
         // Não pode expulsar moderadores — primeiro tire o cargo na página de staff
-        const targetMembership = db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, membro_id);
+        const targetMembership = await db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, membro_id);
         if (targetMembership && targetMembership.cargo === 'moderador') {
             return res.json({ success: false, message: 'Não é possível expulsar um moderador. Remova o cargo primeiro na página de staff.' });
         }
 
         // Verificar se o membro existe na comunidade
-        const targetExists = db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, membro_id);
+        const targetExists = await db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, membro_id);
         if (!targetExists) {
             return res.json({ success: false, message: 'Este usuário não é membro da comunidade.' });
         }
 
-        db.prepare('DELETE FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').run(commId, membro_id);
+        await db.prepare('DELETE FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').run(commId, membro_id);
 
         // Bloquear membro se solicitado
         const { bloquear } = req.body;
         if (bloquear) {
-            const alreadyBanned = db.prepare('SELECT id FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').get(commId, membro_id);
+            const alreadyBanned = await db.prepare('SELECT id FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').get(commId, membro_id);
             if (!alreadyBanned) {
-                db.prepare('INSERT INTO comunidade_bans (comunidade_id, usuario_id, banido_por) VALUES (?, ?, ?)').run(commId, membro_id, userId);
+                await db.prepare('INSERT INTO comunidade_bans (comunidade_id, usuario_id, banido_por) VALUES (?, ?, ?)').run(commId, membro_id, userId);
             }
             // Limpar eventual solicitação pendente
-            db.prepare('DELETE FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').run(commId, membro_id);
+            await db.prepare('DELETE FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').run(commId, membro_id);
         }
 
         return res.json({ success: true, message: bloquear ? 'Membro expulso e bloqueado com sucesso.' : 'Membro expulso com sucesso.' });
@@ -6329,18 +6330,18 @@ app.post('/api/comunidade/:id/expulsar', requireLogin, (req, res) => {
 });
 
 // GET /api/comunidade/:id/bans - Listar membros banidos (apenas dono)
-app.get('/api/comunidade/:id/bans', requireLogin, (req, res) => {
+app.get('/api/comunidade/:id/bans', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.id);
         const userId = req.session.userId;
 
-        const comm = db.prepare('SELECT * FROM comunidades WHERE id = ?').get(commId);
+        const comm = await db.prepare('SELECT * FROM comunidades WHERE id = ?').get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
         const isOwner = String(comm.dono_id) === String(userId);
         if (!isOwner) return res.json({ success: false, message: 'Apenas o dono pode acessar as configurações.' });
 
-        const bans = db.prepare(`
+        const bans = await db.prepare(`
             SELECT cb.id, cb.usuario_id, cb.banido_por, cb.motivo, cb.banido_em,
                    u.nome as usuario_nome, u.foto_perfil as usuario_foto,
                    u2.nome as banido_por_nome
@@ -6351,10 +6352,10 @@ app.get('/api/comunidade/:id/bans', requireLogin, (req, res) => {
             ORDER BY cb.banido_em DESC
         `).all(commId);
 
-        const membrosCount = db.prepare('SELECT COUNT(*) as c FROM comunidade_membros WHERE comunidade_id = ?').get(commId).c;
+        const membrosCount = (await db.prepare('SELECT COUNT(*) as c FROM comunidade_membros WHERE comunidade_id = ?').get(commId)).c;
 
         // Listar moderadores para o dropdown de transferência de posse
-        const moderadores = db.prepare(`SELECT u.id, u.nome FROM comunidade_membros cm JOIN usuarios u ON u.id = cm.usuario_id WHERE cm.comunidade_id = ? AND cm.cargo = 'moderador' ORDER BY u.nome`).all(commId);
+        const moderadores = await db.prepare(`SELECT u.id, u.nome FROM comunidade_membros cm JOIN usuarios u ON u.id = cm.usuario_id WHERE cm.comunidade_id = ? AND cm.cargo = 'moderador' ORDER BY u.nome`).all(commId);
 
         return res.json({
             success: true,
@@ -6371,7 +6372,7 @@ app.get('/api/comunidade/:id/bans', requireLogin, (req, res) => {
 });
 
 // POST /api/comunidade/:id/desbanir - Desbanir membro (apenas dono)
-app.post('/api/comunidade/:id/desbanir', requireLogin, (req, res) => {
+app.post('/api/comunidade/:id/desbanir', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.id);
         const userId = req.session.userId;
@@ -6379,16 +6380,16 @@ app.post('/api/comunidade/:id/desbanir', requireLogin, (req, res) => {
 
         if (!usuario_id) return res.json({ success: false, message: 'ID do usuário não informado.' });
 
-        const comm = db.prepare('SELECT * FROM comunidades WHERE id = ?').get(commId);
+        const comm = await db.prepare('SELECT * FROM comunidades WHERE id = ?').get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
         const isOwner = String(comm.dono_id) === String(userId);
         if (!isOwner) return res.json({ success: false, message: 'Apenas o dono pode desbanir membros.' });
 
-        const ban = db.prepare('SELECT id FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').get(commId, usuario_id);
+        const ban = await db.prepare('SELECT id FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').get(commId, usuario_id);
         if (!ban) return res.json({ success: false, message: 'Este usuário não está banido.' });
 
-        db.prepare('DELETE FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').run(commId, usuario_id);
+        await db.prepare('DELETE FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').run(commId, usuario_id);
 
         return res.json({ success: true, message: 'Usuário desbanido com sucesso.' });
     } catch (err) {
@@ -6398,21 +6399,21 @@ app.post('/api/comunidade/:id/desbanir', requireLogin, (req, res) => {
 });
 
 // GET /api/comunidade/:id/pendentes - Listar solicitações pendentes (dono ou moderador)
-app.get('/api/comunidade/:id/pendentes', requireLogin, (req, res) => {
+app.get('/api/comunidade/:id/pendentes', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.id);
         const userId = req.session.userId;
         const tzOff = getTzOffset();
 
-        const comm = db.prepare('SELECT * FROM comunidades WHERE id = ?').get(commId);
+        const comm = await db.prepare('SELECT * FROM comunidades WHERE id = ?').get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
-        const membership = db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
+        const membership = await db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
         const isOwner = String(comm.dono_id) === String(userId);
         const isModerator = membership && membership.cargo === 'moderador';
         if (!isOwner && !isModerator) return res.json({ success: false, message: 'Apenas o dono ou moderadores podem ver solicitações.' });
 
-        const pendentes = db.prepare(`
+        const pendentes = await db.prepare(`
             SELECT cp.id, cp.usuario_id, cp.mensagem, datetime(cp.solicitado_em, '${tzOff}') as solicitado_em,
                    u.nome, u.foto_perfil
             FROM comunidade_pendentes cp
@@ -6421,7 +6422,7 @@ app.get('/api/comunidade/:id/pendentes', requireLogin, (req, res) => {
             ORDER BY cp.solicitado_em ASC
         `).all(commId);
 
-        const membrosCount = db.prepare('SELECT COUNT(*) as c FROM comunidade_membros WHERE comunidade_id = ?').get(commId).c;
+        const membrosCount = (await db.prepare('SELECT COUNT(*) as c FROM comunidade_membros WHERE comunidade_id = ?').get(commId)).c;
 
         return res.json({
             success: true,
@@ -6438,7 +6439,7 @@ app.get('/api/comunidade/:id/pendentes', requireLogin, (req, res) => {
 });
 
 // POST /api/comunidade/:id/pendentes/aprovar - Aprovar solicitação
-app.post('/api/comunidade/:id/pendentes/aprovar', requireLogin, (req, res) => {
+app.post('/api/comunidade/:id/pendentes/aprovar', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.id);
         const userId = req.session.userId;
@@ -6446,23 +6447,23 @@ app.post('/api/comunidade/:id/pendentes/aprovar', requireLogin, (req, res) => {
 
         if (!usuario_id) return res.json({ success: false, message: 'ID do usuário não informado.' });
 
-        const comm = db.prepare('SELECT * FROM comunidades WHERE id = ?').get(commId);
+        const comm = await db.prepare('SELECT * FROM comunidades WHERE id = ?').get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
-        const membership = db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
+        const membership = await db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
         const isOwner = String(comm.dono_id) === String(userId);
         const isModerator = membership && membership.cargo === 'moderador';
         if (!isOwner && !isModerator) return res.json({ success: false, message: 'Sem permissão.' });
 
-        const pending = db.prepare('SELECT id FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').get(commId, usuario_id);
+        const pending = await db.prepare('SELECT id FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').get(commId, usuario_id);
         if (!pending) return res.json({ success: false, message: 'Solicitação não encontrada.' });
 
         // Remover da pendentes e adicionar como membro
-        db.prepare('DELETE FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').run(commId, usuario_id);
-        db.prepare('INSERT OR IGNORE INTO comunidade_membros (comunidade_id, usuario_id) VALUES (?, ?)').run(commId, usuario_id);
+        await db.prepare('DELETE FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').run(commId, usuario_id);
+        await db.prepare('INSERT OR IGNORE INTO comunidade_membros (comunidade_id, usuario_id) VALUES (?, ?)').run(commId, usuario_id);
 
         // Notificar o usuário aprovado
-        db.prepare(`INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem, link, remetente_id) VALUES (?, 'comunidade_aprovado', ?, ?, ?, ?)`).run(
+        await db.prepare(`INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem, link, remetente_id) VALUES (?, 'comunidade_aprovado', ?, ?, ?, ?)`).run(
             usuario_id,
             'Solicitação aprovada!',
             'Sua solicitação para entrar na comunidade "' + comm.nome + '" foi aprovada. Você agora é membro!',
@@ -6478,7 +6479,7 @@ app.post('/api/comunidade/:id/pendentes/aprovar', requireLogin, (req, res) => {
 });
 
 // POST /api/comunidade/:id/pendentes/rejeitar - Rejeitar solicitação
-app.post('/api/comunidade/:id/pendentes/rejeitar', requireLogin, (req, res) => {
+app.post('/api/comunidade/:id/pendentes/rejeitar', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.id);
         const userId = req.session.userId;
@@ -6486,29 +6487,29 @@ app.post('/api/comunidade/:id/pendentes/rejeitar', requireLogin, (req, res) => {
 
         if (!usuario_id) return res.json({ success: false, message: 'ID do usuário não informado.' });
 
-        const comm = db.prepare('SELECT * FROM comunidades WHERE id = ?').get(commId);
+        const comm = await db.prepare('SELECT * FROM comunidades WHERE id = ?').get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
-        const membership = db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
+        const membership = await db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
         const isOwner = String(comm.dono_id) === String(userId);
         const isModerator = membership && membership.cargo === 'moderador';
         if (!isOwner && !isModerator) return res.json({ success: false, message: 'Sem permissão.' });
 
-        const pending = db.prepare('SELECT id FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').get(commId, usuario_id);
+        const pending = await db.prepare('SELECT id FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').get(commId, usuario_id);
         if (!pending) return res.json({ success: false, message: 'Solicitação não encontrada.' });
 
-        db.prepare('DELETE FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').run(commId, usuario_id);
+        await db.prepare('DELETE FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').run(commId, usuario_id);
 
         // Bloquear usuário se solicitado
         if (bloquear) {
-            const alreadyBanned = db.prepare('SELECT id FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').get(commId, usuario_id);
+            const alreadyBanned = await db.prepare('SELECT id FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').get(commId, usuario_id);
             if (!alreadyBanned) {
-                db.prepare('INSERT INTO comunidade_bans (comunidade_id, usuario_id, banido_por) VALUES (?, ?, ?)').run(commId, usuario_id, userId);
+                await db.prepare('INSERT INTO comunidade_bans (comunidade_id, usuario_id, banido_por) VALUES (?, ?, ?)').run(commId, usuario_id, userId);
             }
         }
 
         // Notificar o usuário rejeitado
-        db.prepare(`INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem, link, remetente_id) VALUES (?, 'comunidade_rejeitado', ?, ?, ?, ?)`).run(
+        await db.prepare(`INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem, link, remetente_id) VALUES (?, 'comunidade_rejeitado', ?, ?, ?, ?)`).run(
             usuario_id,
             'Solicitação recusada',
             'Sua solicitação para entrar na comunidade "' + comm.nome + '" foi recusada.',
@@ -6524,15 +6525,15 @@ app.post('/api/comunidade/:id/pendentes/rejeitar', requireLogin, (req, res) => {
 });
 
 // POST /api/comunidade/:id/pendentes/cancelar - Cancelar própria solicitação
-app.post('/api/comunidade/:id/pendentes/cancelar', requireLogin, (req, res) => {
+app.post('/api/comunidade/:id/pendentes/cancelar', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.id);
         const userId = req.session.userId;
 
-        const pending = db.prepare('SELECT id FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
+        const pending = await db.prepare('SELECT id FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
         if (!pending) return res.json({ success: false, message: 'Nenhuma solicitação pendente encontrada.' });
 
-        db.prepare('DELETE FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').run(commId, userId);
+        await db.prepare('DELETE FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').run(commId, userId);
 
         return res.json({ success: true, message: 'Solicitação cancelada.' });
     } catch (err) {
@@ -6542,7 +6543,7 @@ app.post('/api/comunidade/:id/pendentes/cancelar', requireLogin, (req, res) => {
 });
 
 // POST /api/comunidades/criar - Criar nova comunidade
-app.post('/api/comunidades/criar', requireLogin, (req, res) => {
+app.post('/api/comunidades/criar', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { nome, descricao, categoria, tipo, idioma, local, foto_base64 } = req.body;
@@ -6555,7 +6556,7 @@ app.post('/api/comunidades/criar', requireLogin, (req, res) => {
         }
 
         // Verificar se já existe comunidade com esse nome
-        const existing = db.prepare('SELECT id FROM comunidades WHERE LOWER(nome) = LOWER(?)').get(nome.trim());
+        const existing = await db.prepare('SELECT id FROM comunidades WHERE LOWER(nome) = LOWER(?)').get(nome.trim());
         if (existing) {
             return res.json({ success: false, message: 'Já existe uma comunidade com esse nome.' });
         }
@@ -6585,13 +6586,13 @@ app.post('/api/comunidades/criar', requireLogin, (req, res) => {
             }
         }
 
-        const result = db.prepare('INSERT INTO comunidades (nome, descricao, categoria, tipo, foto, idioma, local_text, dono_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+        const result = await db.prepare('INSERT INTO comunidades (nome, descricao, categoria, tipo, foto, idioma, local_text, dono_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
             nome.trim(), (descricao || '').trim(), cat, tipoVal, fotoPath, idiomaVal, localVal, userId
         );
         const commId = result.lastInsertRowid;
 
         // Dono entra automaticamente como membro
-        db.prepare('INSERT INTO comunidade_membros (comunidade_id, usuario_id, cargo) VALUES (?, ?, ?)').run(commId, userId, 'dono');
+        await db.prepare('INSERT INTO comunidade_membros (comunidade_id, usuario_id, cargo) VALUES (?, ?, ?)').run(commId, userId, 'dono');
 
         return res.json({ success: true, id: commId, message: 'Comunidade criada com sucesso!' });
     } catch (err) {
@@ -6601,32 +6602,32 @@ app.post('/api/comunidades/criar', requireLogin, (req, res) => {
 });
 
 // POST /api/comunidades/entrar - Entrar em uma comunidade
-app.post('/api/comunidades/entrar', requireLogin, (req, res) => {
+app.post('/api/comunidades/entrar', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { comunidade_id } = req.body;
 
-        const comm = db.prepare('SELECT * FROM comunidades WHERE id = ?').get(comunidade_id);
+        const comm = await db.prepare('SELECT * FROM comunidades WHERE id = ?').get(comunidade_id);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
         // Verificar se está bloqueado
-        const isBanned = db.prepare('SELECT id FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').get(comunidade_id, userId);
+        const isBanned = await db.prepare('SELECT id FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').get(comunidade_id, userId);
         if (isBanned) return res.json({ success: false, message: 'Você não pode acessar esta comunidade! Entre em contato com os donos da comunidade.' });
 
-        const already = db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(comunidade_id, userId);
+        const already = await db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(comunidade_id, userId);
         if (already) return res.json({ success: false, message: 'Você já é membro desta comunidade.' });
 
         // Comunidade privada: criar solicitação pendente
         if (comm.tipo === 'privada') {
-            const alreadyPending = db.prepare('SELECT id FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').get(comunidade_id, userId);
+            const alreadyPending = await db.prepare('SELECT id FROM comunidade_pendentes WHERE comunidade_id = ? AND usuario_id = ?').get(comunidade_id, userId);
             if (alreadyPending) return res.json({ success: false, message: 'Sua solicitação já foi enviada. Aguarde aprovação.' });
 
             const mensagemPendente = (req.body.mensagem || '').trim().substring(0, 500);
-            db.prepare('INSERT INTO comunidade_pendentes (comunidade_id, usuario_id, mensagem) VALUES (?, ?, ?)').run(comunidade_id, userId, mensagemPendente);
+            await db.prepare('INSERT INTO comunidade_pendentes (comunidade_id, usuario_id, mensagem) VALUES (?, ?, ?)').run(comunidade_id, userId, mensagemPendente);
             return res.json({ success: true, message: 'Solicitação enviada! Aguarde aprovação.', pending: true });
         }
 
-        db.prepare('INSERT INTO comunidade_membros (comunidade_id, usuario_id) VALUES (?, ?)').run(comunidade_id, userId);
+        await db.prepare('INSERT INTO comunidade_membros (comunidade_id, usuario_id) VALUES (?, ?)').run(comunidade_id, userId);
         return res.json({ success: true, message: 'Você entrou na comunidade!' });
     } catch (err) {
         console.error('Erro ao entrar na comunidade:', err);
@@ -6635,19 +6636,19 @@ app.post('/api/comunidades/entrar', requireLogin, (req, res) => {
 });
 
 // POST /api/comunidades/sair - Sair de uma comunidade
-app.post('/api/comunidades/sair', requireLogin, (req, res) => {
+app.post('/api/comunidades/sair', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { comunidade_id } = req.body;
 
-        const comm = db.prepare('SELECT * FROM comunidades WHERE id = ?').get(comunidade_id);
+        const comm = await db.prepare('SELECT * FROM comunidades WHERE id = ?').get(comunidade_id);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
         if (comm.dono_id === userId) {
             return res.json({ success: false, message: 'O dono não pode sair da comunidade. Delete-a ao invés disso.' });
         }
 
-        db.prepare('DELETE FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').run(comunidade_id, userId);
+        await db.prepare('DELETE FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').run(comunidade_id, userId);
         return res.json({ success: true, message: 'Você saiu da comunidade.' });
     } catch (err) {
         console.error('Erro ao sair da comunidade:', err);
@@ -6656,7 +6657,7 @@ app.post('/api/comunidades/sair', requireLogin, (req, res) => {
 });
 
 // POST /api/comunidades/transferir - Transferir posse e sair
-app.post('/api/comunidades/transferir', requireLogin, (req, res) => {
+app.post('/api/comunidades/transferir', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { comunidade_id, novo_dono_id, senha } = req.body;
@@ -6670,7 +6671,7 @@ app.post('/api/comunidades/transferir', requireLogin, (req, res) => {
         }
 
         // Verificar senha do usuário
-        const user = db.prepare('SELECT senha FROM usuarios WHERE id = ?').get(String(userId));
+        const user = await db.prepare('SELECT senha FROM usuarios WHERE id = ?').get(String(userId));
         if (!user) return res.json({ success: false, message: 'Usuário não encontrado.' });
 
         const senhaCorreta = bcrypt.compareSync(senha, user.senha);
@@ -6678,7 +6679,7 @@ app.post('/api/comunidades/transferir', requireLogin, (req, res) => {
             return res.json({ success: false, message: 'Senha incorreta.' });
         }
 
-        const comm = db.prepare('SELECT * FROM comunidades WHERE id = ?').get(comunidade_id);
+        const comm = await db.prepare('SELECT * FROM comunidades WHERE id = ?').get(comunidade_id);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
         if (String(comm.dono_id) !== String(userId)) {
@@ -6690,7 +6691,7 @@ app.post('/api/comunidades/transferir', requireLogin, (req, res) => {
         }
 
         // Verificar se o novo dono é moderador
-        const membroInfo = db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(comunidade_id, String(novo_dono_id));
+        const membroInfo = await db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(comunidade_id, String(novo_dono_id));
         if (!membroInfo) {
             return res.json({ success: false, message: 'O usuário precisa ser membro da comunidade.' });
         }
@@ -6699,16 +6700,16 @@ app.post('/api/comunidades/transferir', requireLogin, (req, res) => {
         }
 
         // Transferir: atualizar dono_id na tabela comunidades
-        db.prepare('UPDATE comunidades SET dono_id = ? WHERE id = ?').run(String(novo_dono_id), comunidade_id);
+        await db.prepare('UPDATE comunidades SET dono_id = ? WHERE id = ?').run(String(novo_dono_id), comunidade_id);
 
         // Atualizar cargo do novo dono para 'dono'
-        db.prepare('UPDATE comunidade_membros SET cargo = ? WHERE comunidade_id = ? AND usuario_id = ?').run('dono', comunidade_id, String(novo_dono_id));
+        await db.prepare('UPDATE comunidade_membros SET cargo = ? WHERE comunidade_id = ? AND usuario_id = ?').run('dono', comunidade_id, String(novo_dono_id));
 
         // Atualizar cargo do antigo dono para 'membro'
-        db.prepare('UPDATE comunidade_membros SET cargo = ? WHERE comunidade_id = ? AND usuario_id = ?').run('membro', comunidade_id, String(userId));
+        await db.prepare('UPDATE comunidade_membros SET cargo = ? WHERE comunidade_id = ? AND usuario_id = ?').run('membro', comunidade_id, String(userId));
 
         // Remover o antigo dono da comunidade (ele está "saindo")
-        db.prepare('DELETE FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').run(comunidade_id, String(userId));
+        await db.prepare('DELETE FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').run(comunidade_id, String(userId));
 
         return res.json({ success: true, message: 'Posse transferida com sucesso! Você saiu da comunidade.' });
     } catch (err) {
@@ -6718,7 +6719,7 @@ app.post('/api/comunidades/transferir', requireLogin, (req, res) => {
 });
 
 // POST /api/comunidades/excluir - Agendar exclusão da comunidade em 24h (somente dono, com senha)
-app.post('/api/comunidades/excluir', requireLogin, (req, res) => {
+app.post('/api/comunidades/excluir', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { comunidade_id, senha } = req.body;
@@ -6727,7 +6728,7 @@ app.post('/api/comunidades/excluir', requireLogin, (req, res) => {
             return res.json({ success: false, message: 'Digite sua senha para confirmar.' });
         }
 
-        const user = db.prepare('SELECT senha FROM usuarios WHERE id = ?').get(userId);
+        const user = await db.prepare('SELECT senha FROM usuarios WHERE id = ?').get(userId);
         if (!user) return res.json({ success: false, message: 'Usuário não encontrado.' });
 
         const senhaCorreta = bcrypt.compareSync(senha, user.senha);
@@ -6735,7 +6736,7 @@ app.post('/api/comunidades/excluir', requireLogin, (req, res) => {
             return res.json({ success: false, message: 'Senha incorreta! A exclusão não foi iniciada.' });
         }
 
-        const comm = db.prepare('SELECT * FROM comunidades WHERE id = ?').get(comunidade_id);
+        const comm = await db.prepare('SELECT * FROM comunidades WHERE id = ?').get(comunidade_id);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
         if (String(comm.dono_id) !== String(userId)) return res.json({ success: false, message: 'Apenas o dono pode excluir a comunidade.' });
 
@@ -6744,7 +6745,7 @@ app.post('/api/comunidades/excluir', requireLogin, (req, res) => {
         }
 
         // Agendar exclusão para 24h a partir de agora
-        db.prepare(`UPDATE comunidades SET excluir_em = datetime(${agora()}, '+24 hours') WHERE id = ?`).run(comunidade_id);
+        await db.prepare(`UPDATE comunidades SET excluir_em = datetime(${agora()}, '+24 hours') WHERE id = ?`).run(comunidade_id);
 
         return res.json({ success: true, message: 'Exclusão agendada! A comunidade será removida permanentemente em 24 horas.' });
     } catch (err) {
@@ -6754,12 +6755,12 @@ app.post('/api/comunidades/excluir', requireLogin, (req, res) => {
 });
 
 // POST /api/comunidades/cancelar-exclusao - Cancelar exclusão agendada (somente dono)
-app.post('/api/comunidades/cancelar-exclusao', requireLogin, (req, res) => {
+app.post('/api/comunidades/cancelar-exclusao', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { comunidade_id } = req.body;
 
-        const comm = db.prepare('SELECT * FROM comunidades WHERE id = ?').get(comunidade_id);
+        const comm = await db.prepare('SELECT * FROM comunidades WHERE id = ?').get(comunidade_id);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
         if (String(comm.dono_id) !== String(userId)) return res.json({ success: false, message: 'Apenas o dono pode cancelar a exclusão.' });
 
@@ -6767,7 +6768,7 @@ app.post('/api/comunidades/cancelar-exclusao', requireLogin, (req, res) => {
             return res.json({ success: false, message: 'Não há exclusão agendada.' });
         }
 
-        db.prepare('UPDATE comunidades SET excluir_em = NULL WHERE id = ?').run(comunidade_id);
+        await db.prepare('UPDATE comunidades SET excluir_em = NULL WHERE id = ?').run(comunidade_id);
 
         return res.json({ success: true, message: 'Exclusão cancelada com sucesso!' });
     } catch (err) {
@@ -6777,12 +6778,12 @@ app.post('/api/comunidades/cancelar-exclusao', requireLogin, (req, res) => {
 });
 
 // POST /api/comunidades/editar - Editar comunidade (somente dono)
-app.post('/api/comunidades/editar', requireLogin, (req, res) => {
+app.post('/api/comunidades/editar', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { comunidade_id, nome, categoria, idioma, tipo, local, descricao, foto_base64 } = req.body;
 
-        const comm = db.prepare('SELECT * FROM comunidades WHERE id = ?').get(comunidade_id);
+        const comm = await db.prepare('SELECT * FROM comunidades WHERE id = ?').get(comunidade_id);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
         if (String(comm.dono_id) !== String(userId)) return res.json({ success: false, message: 'Apenas o dono pode editar a comunidade.' });
 
@@ -6800,7 +6801,7 @@ app.post('/api/comunidades/editar', requireLogin, (req, res) => {
         }
 
         const tipoNorm = (tipo === 'privada' || tipo === 'Privada') ? 'privada' : 'publica';
-        db.prepare(`
+        await db.prepare(`
             UPDATE comunidades SET nome = ?, descricao = ?, categoria = ?, tipo = ?, foto = ?, idioma = ?, local_text = ?
             WHERE id = ?
         `).run(nome.trim(), descricao || '', categoria || 'Geral', tipoNorm, fotoPath, idioma || 'Português', local || 'Brasil', comunidade_id);
@@ -6813,23 +6814,23 @@ app.post('/api/comunidades/editar', requireLogin, (req, res) => {
 });
 
 // GET /api/comunidade/:id/amigos-para-convidar - Lista amigos que NÃO são membros da comunidade
-app.get('/api/comunidade/:id/amigos-para-convidar', requireLogin, (req, res) => {
+app.get('/api/comunidade/:id/amigos-para-convidar', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.id);
         const userId = req.session.userId;
 
-        const comm = db.prepare('SELECT id, nome, foto FROM comunidades WHERE id = ?').get(commId);
+        const comm = await db.prepare('SELECT id, nome, foto FROM comunidades WHERE id = ?').get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
         // Verificar se o usuário é membro
-        const membership = db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
+        const membership = await db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
         if (!membership) return res.json({ success: false, message: 'Você precisa ser membro para convidar amigos.' });
 
         // Contar total de membros
-        const membrosCount = db.prepare('SELECT COUNT(*) as total FROM comunidade_membros WHERE comunidade_id = ?').get(commId).total;
+        const membrosCount = (await db.prepare('SELECT COUNT(*) as total FROM comunidade_membros WHERE comunidade_id = ?').get(commId)).total;
 
         // Buscar amigos que NÃO são membros desta comunidade
-        const amigos = db.prepare(`
+        const amigos = await db.prepare(`
             SELECT u.id, u.nome, u.foto_perfil
             FROM amizades a
             JOIN usuarios u ON (
@@ -6858,7 +6859,7 @@ app.get('/api/comunidade/:id/amigos-para-convidar', requireLogin, (req, res) => 
 });
 
 // POST /api/comunidades/convidar - Enviar convites (notificações) para amigos
-app.post('/api/comunidades/convidar', requireLogin, (req, res) => {
+app.post('/api/comunidades/convidar', requireLogin, async (req, res) => {
     try {
         const userId = req.session.userId;
         const { comunidade_id, amigos_ids } = req.body;
@@ -6867,31 +6868,31 @@ app.post('/api/comunidades/convidar', requireLogin, (req, res) => {
             return res.json({ success: false, message: 'Selecione pelo menos um amigo.' });
         }
 
-        const comm = db.prepare('SELECT id, nome FROM comunidades WHERE id = ?').get(comunidade_id);
+        const comm = await db.prepare('SELECT id, nome FROM comunidades WHERE id = ?').get(comunidade_id);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
         // Verificar se o usuário é membro
-        const membership = db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(comunidade_id, userId);
+        const membership = await db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(comunidade_id, userId);
         if (!membership) return res.json({ success: false, message: 'Você precisa ser membro para convidar amigos.' });
 
-        const userName = db.prepare('SELECT nome FROM usuarios WHERE id = ?').get(userId);
+        const userName = await db.prepare('SELECT nome FROM usuarios WHERE id = ?').get(userId);
         let convidados = 0;
 
         for (const amigoId of amigos_ids) {
             // Verificar se já é membro
-            const jaMembro = db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(comunidade_id, String(amigoId));
+            const jaMembro = await db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(comunidade_id, String(amigoId));
             if (jaMembro) continue;
 
             // Verificar se é realmente amigo
-            const isAmigo = db.prepare(`SELECT id FROM amizades WHERE status = 'aceita' AND ((remetente_id = ? AND destinatario_id = ?) OR (remetente_id = ? AND destinatario_id = ?))`).get(userId, String(amigoId), String(amigoId), userId);
+            const isAmigo = await db.prepare(`SELECT id FROM amizades WHERE status = 'aceita' AND ((remetente_id = ? AND destinatario_id = ?) OR (remetente_id = ? AND destinatario_id = ?))`).get(userId, String(amigoId), String(amigoId), userId);
             if (!isAmigo) continue;
 
             // Verificar se já existe convite pendente (não lido) para evitar spam
-            const jaConvidado = db.prepare(`SELECT id FROM notificacoes WHERE usuario_id = ? AND tipo = 'convite_comunidade' AND link LIKE ? AND lida = 0`).get(String(amigoId), 'comunidades.php?id=' + comunidade_id + '%');
+            const jaConvidado = await db.prepare(`SELECT id FROM notificacoes WHERE usuario_id = ? AND tipo = 'convite_comunidade' AND link LIKE ? AND lida = 0`).get(String(amigoId), 'comunidades.php?id=' + comunidade_id + '%');
             if (jaConvidado) continue;
 
             // Criar notificação de convite (NÃO adiciona como membro)
-            const insertResult = db.prepare(`INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem, link, remetente_id) VALUES (?, 'convite_comunidade', ?, ?, ?, ?)`).run(
+            const insertResult = await db.prepare(`INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem, link, remetente_id) VALUES (?, 'convite_comunidade', ?, ?, ?, ?)`).run(
                 String(amigoId),
                 (userName ? userName.nome : 'Alguém'),
                 'Convidou você para a comunidade "' + comm.nome + '".',
@@ -6900,7 +6901,7 @@ app.post('/api/comunidades/convidar', requireLogin, (req, res) => {
             );
             // Atualizar link com read_notif para marcar como lida ao clicar
             const notifId = insertResult.lastInsertRowid;
-            db.prepare('UPDATE notificacoes SET link = ? WHERE id = ?').run(
+            await db.prepare('UPDATE notificacoes SET link = ? WHERE id = ?').run(
                 'comunidades.php?id=' + comunidade_id + '&read_notif=' + notifId,
                 notifId
             );
@@ -6922,7 +6923,7 @@ app.post('/api/comunidades/convidar', requireLogin, (req, res) => {
 // ===== FÓRUM DE COMUNIDADES =====
 
 // Listar tópicos do fórum de uma comunidade
-app.get('/api/forum/:comunidadeId/topicos', requireLogin, (req, res) => {
+app.get('/api/forum/:comunidadeId/topicos', requireLogin, async (req, res) => {
     try {
         const comunidadeId = req.params.comunidadeId;
         const page = parseInt(req.query.page) || 1;
@@ -6930,29 +6931,29 @@ app.get('/api/forum/:comunidadeId/topicos', requireLogin, (req, res) => {
         const offset = (page - 1) * limit;
 
         // Verificar se comunidade existe
-        const comm = db.prepare('SELECT id, nome, foto, dono_id, tipo FROM comunidades WHERE id = ?').get(comunidadeId);
+        const comm = await db.prepare('SELECT id, nome, foto, dono_id, tipo FROM comunidades WHERE id = ?').get(comunidadeId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
         // Verificar se está bloqueado
-        const isBanned = db.prepare('SELECT id FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').get(comunidadeId, String(req.session.userId));
+        const isBanned = await db.prepare('SELECT id FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').get(comunidadeId, String(req.session.userId));
         if (isBanned) return res.json({ success: false, message: 'Você não pode acessar esta comunidade! Entre em contato com os donos da comunidade.' });
 
         // Verificar se é membro
-        const membro = db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(comunidadeId, String(req.session.userId));
+        const membro = await db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(comunidadeId, String(req.session.userId));
 
         // Comunidade privada: apenas membros podem ver o fórum
         if (comm.tipo === 'privada' && !membro && String(comm.dono_id) !== String(req.session.userId)) {
             return res.json({ success: false, message: 'Esta comunidade é privada. Apenas membros podem acessar o fórum.' });
         }
 
-        const totalMembros = db.prepare('SELECT COUNT(*) as c FROM comunidade_membros WHERE comunidade_id = ?').get(comunidadeId).c;
+        const totalMembros = (await db.prepare('SELECT COUNT(*) as c FROM comunidade_membros WHERE comunidade_id = ?').get(comunidadeId)).c;
         comm.total_membros = totalMembros;
 
         const isOwner = String(comm.dono_id) === String(req.session.userId);
 
-        const total = db.prepare('SELECT COUNT(*) as c FROM forum_topicos WHERE comunidade_id = ?').get(comunidadeId).c;
+        const total = (await db.prepare('SELECT COUNT(*) as c FROM forum_topicos WHERE comunidade_id = ?').get(comunidadeId)).c;
 
-        const topicos = db.prepare(`
+        const topicos = await db.prepare(`
             SELECT t.*, u.nome as autor_nome, u.foto_perfil as autor_foto,
                    (SELECT COUNT(*) FROM forum_respostas WHERE topico_id = t.id) as total_respostas,
                    (SELECT u2.nome FROM forum_respostas r2 JOIN usuarios u2 ON u2.id = r2.autor_id WHERE r2.topico_id = t.id ORDER BY r2.criado_em DESC LIMIT 1) as ultima_resposta_autor,
@@ -6981,7 +6982,7 @@ app.get('/api/forum/:comunidadeId/topicos', requireLogin, (req, res) => {
 });
 
 // Criar tópico
-app.post('/api/forum/:comunidadeId/topico/criar', requireLogin, (req, res) => {
+app.post('/api/forum/:comunidadeId/topico/criar', requireLogin, async (req, res) => {
     try {
         const comunidadeId = req.params.comunidadeId;
         const { titulo, mensagem } = req.body;
@@ -6990,14 +6991,14 @@ app.post('/api/forum/:comunidadeId/topico/criar', requireLogin, (req, res) => {
         if (mensagem.length > 5000) return res.json({ success: false, message: 'Mensagem muito longa.' });
 
         // Verificar se é membro
-        const membro = db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(comunidadeId, String(req.session.userId));
+        const membro = await db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(comunidadeId, String(req.session.userId));
         if (!membro) return res.json({ success: false, message: 'Você precisa ser membro da comunidade.' });
 
-        const result = db.prepare(`INSERT INTO forum_topicos (comunidade_id, autor_id, titulo, criado_em, ultima_resposta_em) VALUES (?, ?, ?, ${agora()}, ${agora()})`).run(comunidadeId, String(req.session.userId), titulo);
+        const result = await db.prepare(`INSERT INTO forum_topicos (comunidade_id, autor_id, titulo, criado_em, ultima_resposta_em) VALUES (?, ?, ?, ${agora()}, ${agora()})`).run(comunidadeId, String(req.session.userId), titulo);
         const topicoId = result.lastInsertRowid;
 
         // Primeira resposta = mensagem do tópico
-        db.prepare(`INSERT INTO forum_respostas (topico_id, autor_id, mensagem, criado_em) VALUES (?, ?, ?, ${agora()})`).run(topicoId, String(req.session.userId), mensagem);
+        await db.prepare(`INSERT INTO forum_respostas (topico_id, autor_id, mensagem, criado_em) VALUES (?, ?, ?, ${agora()})`).run(topicoId, String(req.session.userId), mensagem);
 
         res.json({ success: true, id: topicoId });
     } catch(err) {
@@ -7007,14 +7008,14 @@ app.post('/api/forum/:comunidadeId/topico/criar', requireLogin, (req, res) => {
 });
 
 // Ver tópico com respostas
-app.get('/api/forum/topico/:topicoId', requireLogin, (req, res) => {
+app.get('/api/forum/topico/:topicoId', requireLogin, async (req, res) => {
     try {
         const topicoId = req.params.topicoId;
         const page = parseInt(req.query.page) || 1;
         const limit = 20;
         const offset = (page - 1) * limit;
 
-        const topico = db.prepare(`
+        const topico = await db.prepare(`
             SELECT t.*, u.nome as autor_nome, u.foto_perfil as autor_foto, c.nome as comunidade_nome, c.id as comunidade_id, c.foto as comunidade_foto, c.dono_id, c.tipo as comunidade_tipo
             FROM forum_topicos t
             JOIN usuarios u ON u.id = t.autor_id
@@ -7025,16 +7026,16 @@ app.get('/api/forum/topico/:topicoId', requireLogin, (req, res) => {
         if (!topico) return res.json({ success: false, message: 'Tópico não encontrado.' });
 
         // Verificar se é membro
-        const membro = db.prepare('SELECT id, cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(topico.comunidade_id, String(req.session.userId));
+        const membro = await db.prepare('SELECT id, cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(topico.comunidade_id, String(req.session.userId));
 
         // Comunidade privada: apenas membros podem ver tópicos
         if (topico.comunidade_tipo === 'privada' && !membro && String(topico.dono_id) !== String(req.session.userId)) {
             return res.json({ success: false, message: 'Esta comunidade é privada. Apenas membros podem acessar o fórum.' });
         }
 
-        const totalRespostas = db.prepare('SELECT COUNT(*) as c FROM forum_respostas WHERE topico_id = ?').get(topicoId).c;
+        const totalRespostas = (await db.prepare('SELECT COUNT(*) as c FROM forum_respostas WHERE topico_id = ?').get(topicoId)).c;
 
-        const respostas = db.prepare(`
+        const respostas = await db.prepare(`
             SELECT r.*, u.nome as autor_nome, u.foto_perfil as autor_foto, u.sexo as autor_sexo,
                    (SELECT COUNT(*) FROM forum_respostas WHERE topico_id = r.topico_id AND autor_id = r.autor_id) as total_posts_autor
             FROM forum_respostas r
@@ -7046,7 +7047,7 @@ app.get('/api/forum/topico/:topicoId', requireLogin, (req, res) => {
 
         const isOwner = topico.dono_id === String(req.session.userId);
         const isAutor = topico.autor_id === String(req.session.userId);
-        const totalMembros = db.prepare('SELECT COUNT(*) as c FROM comunidade_membros WHERE comunidade_id = ?').get(topico.comunidade_id).c;
+        const totalMembros = (await db.prepare('SELECT COUNT(*) as c FROM comunidade_membros WHERE comunidade_id = ?').get(topico.comunidade_id)).c;
 
         res.json({
             success: true,
@@ -7067,25 +7068,25 @@ app.get('/api/forum/topico/:topicoId', requireLogin, (req, res) => {
 });
 
 // Responder tópico
-app.post('/api/forum/topico/:topicoId/responder', requireLogin, (req, res) => {
+app.post('/api/forum/topico/:topicoId/responder', requireLogin, async (req, res) => {
     try {
         const topicoId = req.params.topicoId;
         const { mensagem } = req.body;
         if (!mensagem || !mensagem.trim()) return res.json({ success: false, message: 'Digite uma mensagem.' });
         if (mensagem.length > 5000) return res.json({ success: false, message: 'Mensagem muito longa.' });
 
-        const topico = db.prepare('SELECT * FROM forum_topicos WHERE id = ?').get(topicoId);
+        const topico = await db.prepare('SELECT * FROM forum_topicos WHERE id = ?').get(topicoId);
         if (!topico) return res.json({ success: false, message: 'Tópico não encontrado.' });
         if (topico.trancado) return res.json({ success: false, message: 'Este tópico está trancado.' });
 
         // Verificar se é membro
-        const membro = db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(topico.comunidade_id, String(req.session.userId));
+        const membro = await db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(topico.comunidade_id, String(req.session.userId));
         if (!membro) return res.json({ success: false, message: 'Você precisa ser membro da comunidade.' });
 
-        db.prepare(`INSERT INTO forum_respostas (topico_id, autor_id, mensagem, criado_em) VALUES (?, ?, ?, ${agora()})`).run(topicoId, String(req.session.userId), mensagem);
+        await db.prepare(`INSERT INTO forum_respostas (topico_id, autor_id, mensagem, criado_em) VALUES (?, ?, ?, ${agora()})`).run(topicoId, String(req.session.userId), mensagem);
 
         // Atualizar ultima_resposta_em
-        db.prepare(`UPDATE forum_topicos SET ultima_resposta_em = ${agora()} WHERE id = ?`).run(topicoId);
+        await db.prepare(`UPDATE forum_topicos SET ultima_resposta_em = ${agora()} WHERE id = ?`).run(topicoId);
 
         res.json({ success: true });
     } catch(err) {
@@ -7095,10 +7096,10 @@ app.post('/api/forum/topico/:topicoId/responder', requireLogin, (req, res) => {
 });
 
 // Excluir tópico (dono da comunidade ou autor do tópico)
-app.post('/api/forum/topico/:topicoId/excluir', requireLogin, (req, res) => {
+app.post('/api/forum/topico/:topicoId/excluir', requireLogin, async (req, res) => {
     try {
         const topicoId = req.params.topicoId;
-        const topico = db.prepare(`SELECT t.*, c.dono_id FROM forum_topicos t JOIN comunidades c ON c.id = t.comunidade_id WHERE t.id = ?`).get(topicoId);
+        const topico = await db.prepare(`SELECT t.*, c.dono_id FROM forum_topicos t JOIN comunidades c ON c.id = t.comunidade_id WHERE t.id = ?`).get(topicoId);
         if (!topico) return res.json({ success: false, message: 'Tópico não encontrado.' });
 
         const userId = String(req.session.userId);
@@ -7106,8 +7107,8 @@ app.post('/api/forum/topico/:topicoId/excluir', requireLogin, (req, res) => {
             return res.json({ success: false, message: 'Sem permissão.' });
         }
 
-        db.prepare('DELETE FROM forum_respostas WHERE topico_id = ?').run(topicoId);
-        db.prepare('DELETE FROM forum_topicos WHERE id = ?').run(topicoId);
+        await db.prepare('DELETE FROM forum_respostas WHERE topico_id = ?').run(topicoId);
+        await db.prepare('DELETE FROM forum_topicos WHERE id = ?').run(topicoId);
         res.json({ success: true });
     } catch(err) {
         console.error('Erro excluir tópico:', err);
@@ -7116,10 +7117,10 @@ app.post('/api/forum/topico/:topicoId/excluir', requireLogin, (req, res) => {
 });
 
 // Excluir resposta (dono da comunidade ou autor da resposta)
-app.post('/api/forum/resposta/:respostaId/excluir', requireLogin, (req, res) => {
+app.post('/api/forum/resposta/:respostaId/excluir', requireLogin, async (req, res) => {
     try {
         const respostaId = req.params.respostaId;
-        const resposta = db.prepare(`
+        const resposta = await db.prepare(`
             SELECT r.*, t.comunidade_id, c.dono_id
             FROM forum_respostas r
             JOIN forum_topicos t ON t.id = r.topico_id
@@ -7133,7 +7134,7 @@ app.post('/api/forum/resposta/:respostaId/excluir', requireLogin, (req, res) => 
             return res.json({ success: false, message: 'Sem permissão.' });
         }
 
-        db.prepare('DELETE FROM forum_respostas WHERE id = ?').run(respostaId);
+        await db.prepare('DELETE FROM forum_respostas WHERE id = ?').run(respostaId);
         res.json({ success: true });
     } catch(err) {
         console.error('Erro excluir resposta:', err);
@@ -7142,15 +7143,15 @@ app.post('/api/forum/resposta/:respostaId/excluir', requireLogin, (req, res) => 
 });
 
 // Fixar/desfixar tópico (dono da comunidade)
-app.post('/api/forum/topico/:topicoId/fixar', requireLogin, (req, res) => {
+app.post('/api/forum/topico/:topicoId/fixar', requireLogin, async (req, res) => {
     try {
         const topicoId = req.params.topicoId;
-        const topico = db.prepare(`SELECT t.*, c.dono_id FROM forum_topicos t JOIN comunidades c ON c.id = t.comunidade_id WHERE t.id = ?`).get(topicoId);
+        const topico = await db.prepare(`SELECT t.*, c.dono_id FROM forum_topicos t JOIN comunidades c ON c.id = t.comunidade_id WHERE t.id = ?`).get(topicoId);
         if (!topico) return res.json({ success: false, message: 'Tópico não encontrado.' });
         if (topico.dono_id !== String(req.session.userId)) return res.json({ success: false, message: 'Sem permissão.' });
 
         const newVal = topico.fixado ? 0 : 1;
-        db.prepare('UPDATE forum_topicos SET fixado = ? WHERE id = ?').run(newVal, topicoId);
+        await db.prepare('UPDATE forum_topicos SET fixado = ? WHERE id = ?').run(newVal, topicoId);
         res.json({ success: true, fixado: newVal });
     } catch(err) {
         console.error('Erro fixar tópico:', err);
@@ -7159,15 +7160,15 @@ app.post('/api/forum/topico/:topicoId/fixar', requireLogin, (req, res) => {
 });
 
 // Trancar/destrancar tópico (dono da comunidade)
-app.post('/api/forum/topico/:topicoId/trancar', requireLogin, (req, res) => {
+app.post('/api/forum/topico/:topicoId/trancar', requireLogin, async (req, res) => {
     try {
         const topicoId = req.params.topicoId;
-        const topico = db.prepare(`SELECT t.*, c.dono_id FROM forum_topicos t JOIN comunidades c ON c.id = t.comunidade_id WHERE t.id = ?`).get(topicoId);
+        const topico = await db.prepare(`SELECT t.*, c.dono_id FROM forum_topicos t JOIN comunidades c ON c.id = t.comunidade_id WHERE t.id = ?`).get(topicoId);
         if (!topico) return res.json({ success: false, message: 'Tópico não encontrado.' });
         if (topico.dono_id !== String(req.session.userId)) return res.json({ success: false, message: 'Sem permissão.' });
 
         const newVal = topico.trancado ? 0 : 1;
-        db.prepare('UPDATE forum_topicos SET trancado = ? WHERE id = ?').run(newVal, topicoId);
+        await db.prepare('UPDATE forum_topicos SET trancado = ? WHERE id = ?').run(newVal, topicoId);
         res.json({ success: true, trancado: newVal });
     } catch(err) {
         console.error('Erro trancar tópico:', err);
@@ -7178,25 +7179,25 @@ app.post('/api/forum/topico/:topicoId/trancar', requireLogin, (req, res) => {
 // ===== ENQUETES (Polls) =====
 
 // Listar enquetes de uma comunidade
-app.get('/api/enquetes/:commId', requireLogin, (req, res) => {
+app.get('/api/enquetes/:commId', requireLogin, async (req, res) => {
     try {
         const commId = req.params.commId;
-        const comm = db.prepare('SELECT * FROM comunidades WHERE id = ?').get(commId);
+        const comm = await db.prepare('SELECT * FROM comunidades WHERE id = ?').get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
         // Verificar se está bloqueado
-        const isBanned = db.prepare('SELECT id FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').get(commId, String(req.session.userId));
+        const isBanned = await db.prepare('SELECT id FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').get(commId, String(req.session.userId));
         if (isBanned) return res.json({ success: false, message: 'Você não pode acessar esta comunidade! Entre em contato com os donos da comunidade.' });
 
         // Comunidade privada: apenas membros podem ver enquetes
         if (comm.tipo === 'privada') {
-            const membroEnq = db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, String(req.session.userId));
+            const membroEnq = await db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, String(req.session.userId));
             if (!membroEnq && String(comm.dono_id) !== String(req.session.userId)) {
                 return res.json({ success: false, message: 'Esta comunidade é privada. Apenas membros podem acessar as enquetes.' });
             }
         }
 
-        const enquetes = db.prepare(`
+        const enquetes = await db.prepare(`
             SELECT e.*, u.nome as criador_nome, u.foto_perfil as criador_foto
             FROM enquetes e
             JOIN usuarios u ON u.id = e.criador_id
@@ -7207,7 +7208,7 @@ app.get('/api/enquetes/:commId', requireLogin, (req, res) => {
         const userId = String(req.session.userId);
 
         const result = enquetes.map(enq => {
-            const opcoes = db.prepare(`
+            const opcoes = await db.prepare(`
                 SELECT o.*, 
                     (SELECT COUNT(*) FROM enquete_votos WHERE opcao_id = o.id) as votos
                 FROM enquete_opcoes o
@@ -7217,7 +7218,7 @@ app.get('/api/enquetes/:commId', requireLogin, (req, res) => {
 
             const totalVotos = opcoes.reduce((sum, o) => sum + o.votos, 0);
 
-            const meuVoto = db.prepare('SELECT opcao_id FROM enquete_votos WHERE enquete_id = ? AND usuario_id = ?').get(enq.id, userId);
+            const meuVoto = await db.prepare('SELECT opcao_id FROM enquete_votos WHERE enquete_id = ? AND usuario_id = ?').get(enq.id, userId);
 
             return {
                 ...enq,
@@ -7234,7 +7235,7 @@ app.get('/api/enquetes/:commId', requireLogin, (req, res) => {
             };
         });
 
-        const membrosCount = db.prepare('SELECT COUNT(*) as c FROM comunidade_membros WHERE comunidade_id = ?').get(commId).c;
+        const membrosCount = (await db.prepare('SELECT COUNT(*) as c FROM comunidade_membros WHERE comunidade_id = ?').get(commId)).c;
         const isOwner = String(comm.dono_id) === String(userId);
         res.json({ success: true, enquetes: result, community: { id: comm.id, nome: comm.nome, foto: comm.foto, dono_id: comm.dono_id }, membrosCount, isOwner });
     } catch(err) {
@@ -7244,15 +7245,15 @@ app.get('/api/enquetes/:commId', requireLogin, (req, res) => {
 });
 
 // Criar enquete
-app.post('/api/enquetes/:commId', requireLogin, (req, res) => {
+app.post('/api/enquetes/:commId', requireLogin, async (req, res) => {
     try {
         const commId = req.params.commId;
         const userId = String(req.session.userId);
-        const comm = db.prepare('SELECT * FROM comunidades WHERE id = ?').get(commId);
+        const comm = await db.prepare('SELECT * FROM comunidades WHERE id = ?').get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
         // Verificar se é membro
-        const isMember = db.prepare('SELECT 1 FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
+        const isMember = await db.prepare('SELECT 1 FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
         if (!isMember) return res.json({ success: false, message: 'Você precisa ser membro da comunidade.' });
 
         const { titulo, opcoes, data_inicio, data_fim, mostrar_votantes } = req.body;
@@ -7263,16 +7264,16 @@ app.post('/api/enquetes/:commId', requireLogin, (req, res) => {
         const validOpcoes = opcoes.filter(o => o && o.trim());
         if (validOpcoes.length < 2) return res.json({ success: false, message: 'Mínimo de 2 opções válidas.' });
 
-        const info = db.prepare(`
+        const info = await db.prepare(`
             INSERT INTO enquetes (comunidade_id, criador_id, titulo, data_inicio, data_fim, mostrar_votantes)
             VALUES (?, ?, ?, ?, ?, ?)
         `).run(commId, userId, titulo.trim(), data_inicio || null, data_fim || null, mostrar_votantes ? 1 : 0);
 
         const enqueteId = info.lastInsertRowid;
 
-        const insertOpcao = db.prepare('INSERT INTO enquete_opcoes (enquete_id, texto) VALUES (?, ?)');
+        const insertOpcao = await db.prepare('INSERT INTO enquete_opcoes (enquete_id, texto) VALUES (?, ?)');
         for (const opcao of validOpcoes) {
-            insertOpcao.run(enqueteId, opcao.trim());
+            await insertOpcao.run(enqueteId, opcao.trim());
         }
 
         res.json({ success: true, enquete_id: enqueteId });
@@ -7283,22 +7284,22 @@ app.post('/api/enquetes/:commId', requireLogin, (req, res) => {
 });
 
 // Buscar uma enquete específica
-app.get('/api/enquetes/:commId/:enqueteId', requireLogin, (req, res) => {
+app.get('/api/enquetes/:commId/:enqueteId', requireLogin, async (req, res) => {
     try {
         const commId = req.params.commId;
         const enqueteId = req.params.enqueteId;
-        const comm = db.prepare('SELECT * FROM comunidades WHERE id = ?').get(commId);
+        const comm = await db.prepare('SELECT * FROM comunidades WHERE id = ?').get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
         // Comunidade privada: apenas membros podem ver enquetes
         if (comm.tipo === 'privada') {
-            const membroEnqDet = db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, String(req.session.userId));
+            const membroEnqDet = await db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, String(req.session.userId));
             if (!membroEnqDet && String(comm.dono_id) !== String(req.session.userId)) {
                 return res.json({ success: false, message: 'Esta comunidade é privada. Apenas membros podem acessar as enquetes.' });
             }
         }
 
-        const enq = db.prepare(`
+        const enq = await db.prepare(`
             SELECT e.*, u.nome as criador_nome, u.foto_perfil as criador_foto
             FROM enquetes e
             JOIN usuarios u ON u.id = e.criador_id
@@ -7309,7 +7310,7 @@ app.get('/api/enquetes/:commId/:enqueteId', requireLogin, (req, res) => {
 
         const userId = String(req.session.userId);
 
-        const opcoes = db.prepare(`
+        const opcoes = await db.prepare(`
             SELECT o.*, 
                 (SELECT COUNT(*) FROM enquete_votos WHERE opcao_id = o.id) as votos
             FROM enquete_opcoes o
@@ -7318,7 +7319,7 @@ app.get('/api/enquetes/:commId/:enqueteId', requireLogin, (req, res) => {
         `).all(enq.id);
 
         const totalVotos = opcoes.reduce((sum, o) => sum + o.votos, 0);
-        const meuVoto = db.prepare('SELECT opcao_id FROM enquete_votos WHERE enquete_id = ? AND usuario_id = ?').get(enq.id, userId);
+        const meuVoto = await db.prepare('SELECT opcao_id FROM enquete_votos WHERE enquete_id = ? AND usuario_id = ?').get(enq.id, userId);
 
         const result = {
             ...enq,
@@ -7334,7 +7335,7 @@ app.get('/api/enquetes/:commId/:enqueteId', requireLogin, (req, res) => {
             is_owner: enq.criador_id === userId || comm.dono_id === userId
         };
 
-        const membrosCountDetail = db.prepare('SELECT COUNT(*) as c FROM comunidade_membros WHERE comunidade_id = ?').get(commId).c;
+        const membrosCountDetail = (await db.prepare('SELECT COUNT(*) as c FROM comunidade_membros WHERE comunidade_id = ?').get(commId)).c;
         const isOwner = String(comm.dono_id) === String(userId);
         res.json({ success: true, enquete: result, community: { id: comm.id, nome: comm.nome, foto: comm.foto, dono_id: comm.dono_id }, membrosCount: membrosCountDetail, isOwner });
     } catch(err) {
@@ -7344,7 +7345,7 @@ app.get('/api/enquetes/:commId/:enqueteId', requireLogin, (req, res) => {
 });
 
 // Votar em enquete
-app.post('/api/enquetes/:commId/:enqueteId/votar', requireLogin, (req, res) => {
+app.post('/api/enquetes/:commId/:enqueteId/votar', requireLogin, async (req, res) => {
     try {
         const { enqueteId } = req.params;
         const userId = String(req.session.userId);
@@ -7352,7 +7353,7 @@ app.post('/api/enquetes/:commId/:enqueteId/votar', requireLogin, (req, res) => {
 
         if (!opcao_id) return res.json({ success: false, message: 'Selecione uma opção.' });
 
-        const enquete = db.prepare('SELECT * FROM enquetes WHERE id = ?').get(enqueteId);
+        const enquete = await db.prepare('SELECT * FROM enquetes WHERE id = ?').get(enqueteId);
         if (!enquete) return res.json({ success: false, message: 'Enquete não encontrada.' });
 
         // Verificar se a enquete já encerrou
@@ -7363,17 +7364,17 @@ app.post('/api/enquetes/:commId/:enqueteId/votar', requireLogin, (req, res) => {
         }
 
         // Verificar se já votou
-        const jaVotou = db.prepare('SELECT 1 FROM enquete_votos WHERE enquete_id = ? AND usuario_id = ?').get(enqueteId, userId);
+        const jaVotou = await db.prepare('SELECT 1 FROM enquete_votos WHERE enquete_id = ? AND usuario_id = ?').get(enqueteId, userId);
         if (jaVotou) return res.json({ success: false, message: 'Você já votou nesta enquete.' });
 
         // Verificar se a opção pertence a esta enquete
-        const opcao = db.prepare('SELECT 1 FROM enquete_opcoes WHERE id = ? AND enquete_id = ?').get(opcao_id, enqueteId);
+        const opcao = await db.prepare('SELECT 1 FROM enquete_opcoes WHERE id = ? AND enquete_id = ?').get(opcao_id, enqueteId);
         if (!opcao) return res.json({ success: false, message: 'Opção inválida.' });
 
-        db.prepare('INSERT INTO enquete_votos (enquete_id, opcao_id, usuario_id) VALUES (?, ?, ?)').run(enqueteId, opcao_id, userId);
+        await db.prepare('INSERT INTO enquete_votos (enquete_id, opcao_id, usuario_id) VALUES (?, ?, ?)').run(enqueteId, opcao_id, userId);
 
         // Retornar dados atualizados
-        const opcoes = db.prepare(`
+        const opcoes = await db.prepare(`
             SELECT o.id, o.texto, o.foto,
                 (SELECT COUNT(*) FROM enquete_votos WHERE opcao_id = o.id) as votos
             FROM enquete_opcoes o WHERE o.enquete_id = ? ORDER BY o.id
@@ -7396,21 +7397,21 @@ app.post('/api/enquetes/:commId/:enqueteId/votar', requireLogin, (req, res) => {
 });
 
 // Excluir enquete (dono da comunidade ou criador da enquete)
-app.post('/api/enquetes/:commId/:enqueteId/excluir', requireLogin, (req, res) => {
+app.post('/api/enquetes/:commId/:enqueteId/excluir', requireLogin, async (req, res) => {
     try {
         const { commId, enqueteId } = req.params;
         const userId = String(req.session.userId);
 
-        const enquete = db.prepare('SELECT e.*, c.dono_id FROM enquetes e JOIN comunidades c ON c.id = e.comunidade_id WHERE e.id = ? AND e.comunidade_id = ?').get(enqueteId, commId);
+        const enquete = await db.prepare('SELECT e.*, c.dono_id FROM enquetes e JOIN comunidades c ON c.id = e.comunidade_id WHERE e.id = ? AND e.comunidade_id = ?').get(enqueteId, commId);
         if (!enquete) return res.json({ success: false, message: 'Enquete não encontrada.' });
 
         if (enquete.criador_id !== userId && enquete.dono_id !== userId) {
             return res.json({ success: false, message: 'Sem permissão.' });
         }
 
-        db.prepare('DELETE FROM enquete_votos WHERE enquete_id = ?').run(enqueteId);
-        db.prepare('DELETE FROM enquete_opcoes WHERE enquete_id = ?').run(enqueteId);
-        db.prepare('DELETE FROM enquetes WHERE id = ?').run(enqueteId);
+        await db.prepare('DELETE FROM enquete_votos WHERE enquete_id = ?').run(enqueteId);
+        await db.prepare('DELETE FROM enquete_opcoes WHERE enquete_id = ?').run(enqueteId);
+        await db.prepare('DELETE FROM enquetes WHERE id = ?').run(enqueteId);
 
         res.json({ success: true });
     } catch(err) {
@@ -7420,16 +7421,16 @@ app.post('/api/enquetes/:commId/:enqueteId/excluir', requireLogin, (req, res) =>
 });
 
 // Detalhes de votos de uma enquete (apenas se mostrar_votantes e enquete encerrada)
-app.get('/api/enquetes/:commId/:enqueteId/votantes', requireLogin, (req, res) => {
+app.get('/api/enquetes/:commId/:enqueteId/votantes', requireLogin, async (req, res) => {
     try {
         const { commId, enqueteId } = req.params;
-        const enquete = db.prepare('SELECT * FROM enquetes WHERE id = ?').get(enqueteId);
+        const enquete = await db.prepare('SELECT * FROM enquetes WHERE id = ?').get(enqueteId);
         if (!enquete) return res.json({ success: false, message: 'Enquete não encontrada.' });
 
         // Comunidade privada: apenas membros podem ver votantes
-        const commVot = db.prepare('SELECT tipo, dono_id FROM comunidades WHERE id = ?').get(commId);
+        const commVot = await db.prepare('SELECT tipo, dono_id FROM comunidades WHERE id = ?').get(commId);
         if (commVot && commVot.tipo === 'privada') {
-            const membroVot = db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, String(req.session.userId));
+            const membroVot = await db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, String(req.session.userId));
             if (!membroVot && String(commVot.dono_id) !== String(req.session.userId)) {
                 return res.json({ success: false, message: 'Esta comunidade é privada. Apenas membros podem acessar.' });
             }
@@ -7443,7 +7444,7 @@ app.get('/api/enquetes/:commId/:enqueteId/votantes', requireLogin, (req, res) =>
             return res.json({ success: false, message: 'Enquete sem data de encerramento.' });
         }
 
-        const votantes = db.prepare(`
+        const votantes = await db.prepare(`
             SELECT v.opcao_id, v.votado_em, u.id as user_id, u.nome, u.foto_perfil as foto, o.texto as opcao_texto
             FROM enquete_votos v
             JOIN usuarios u ON u.id = v.usuario_id
@@ -7462,12 +7463,12 @@ app.get('/api/enquetes/:commId/:enqueteId/votantes', requireLogin, (req, res) =>
 // ===== STAFF DA COMUNIDADE =====
 
 // GET /api/comunidade/:id/staff - Listar staff (dono + moderadores)
-app.get('/api/comunidade/:id/staff', requireLogin, (req, res) => {
+app.get('/api/comunidade/:id/staff', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.id);
         const userId = req.session.userId;
 
-        const comm = db.prepare(`
+        const comm = await db.prepare(`
             SELECT c.id, c.nome, c.foto, c.dono_id, u.nome as dono_nome, u.foto_perfil as dono_foto
             FROM comunidades c
             LEFT JOIN usuarios u ON u.id = c.dono_id
@@ -7475,9 +7476,9 @@ app.get('/api/comunidade/:id/staff', requireLogin, (req, res) => {
         `).get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
-        const membrosCount = db.prepare('SELECT COUNT(*) as total FROM comunidade_membros WHERE comunidade_id = ?').get(commId).total;
+        const membrosCount = (await db.prepare('SELECT COUNT(*) as total FROM comunidade_membros WHERE comunidade_id = ?').get(commId)).total;
 
-        const membership = db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
+        const membership = await db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
         const isMember = !!membership;
         const isOwner = String(comm.dono_id) === String(userId);
 
@@ -7489,7 +7490,7 @@ app.get('/api/comunidade/:id/staff', requireLogin, (req, res) => {
         };
 
         // Moderadores
-        const moderadores = db.prepare(`
+        const moderadores = await db.prepare(`
             SELECT u.id, u.nome, u.foto_perfil
             FROM comunidade_membros cm
             JOIN usuarios u ON u.id = cm.usuario_id
@@ -7498,7 +7499,7 @@ app.get('/api/comunidade/:id/staff', requireLogin, (req, res) => {
         `).all(commId);
 
         // Membros para sidebar (últimos 9)
-        const membros = db.prepare(`
+        const membros = await db.prepare(`
             SELECT u.id, u.nome, u.foto_perfil
             FROM comunidade_membros cm
             JOIN usuarios u ON u.id = cm.usuario_id
@@ -7524,7 +7525,7 @@ app.get('/api/comunidade/:id/staff', requireLogin, (req, res) => {
 });
 
 // POST /api/comunidade/:id/staff/add - Adicionar moderador (dono only)
-app.post('/api/comunidade/:id/staff/add', requireLogin, (req, res) => {
+app.post('/api/comunidade/:id/staff/add', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.id);
         const userId = req.session.userId;
@@ -7532,17 +7533,17 @@ app.post('/api/comunidade/:id/staff/add', requireLogin, (req, res) => {
 
         if (!usuario_id) return res.json({ success: false, message: 'Informe o usuário.' });
 
-        const comm = db.prepare('SELECT dono_id FROM comunidades WHERE id = ?').get(commId);
+        const comm = await db.prepare('SELECT dono_id FROM comunidades WHERE id = ?').get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
         if (String(comm.dono_id) !== String(userId)) return res.json({ success: false, message: 'Apenas o dono pode gerenciar o staff.' });
 
         if (String(usuario_id) === String(comm.dono_id)) return res.json({ success: false, message: 'O dono já faz parte do staff.' });
 
-        const member = db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, String(usuario_id));
+        const member = await db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, String(usuario_id));
         if (!member) return res.json({ success: false, message: 'Este usuário não é membro da comunidade.' });
         if (member.cargo === 'moderador') return res.json({ success: false, message: 'Este usuário já é moderador.' });
 
-        db.prepare('UPDATE comunidade_membros SET cargo = ? WHERE comunidade_id = ? AND usuario_id = ?').run('moderador', commId, String(usuario_id));
+        await db.prepare('UPDATE comunidade_membros SET cargo = ? WHERE comunidade_id = ? AND usuario_id = ?').run('moderador', commId, String(usuario_id));
 
         return res.json({ success: true, message: 'Moderador adicionado com sucesso!' });
     } catch (err) {
@@ -7552,7 +7553,7 @@ app.post('/api/comunidade/:id/staff/add', requireLogin, (req, res) => {
 });
 
 // POST /api/comunidade/:id/staff/remove - Remover moderador (dono only)
-app.post('/api/comunidade/:id/staff/remove', requireLogin, (req, res) => {
+app.post('/api/comunidade/:id/staff/remove', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.id);
         const userId = req.session.userId;
@@ -7560,11 +7561,11 @@ app.post('/api/comunidade/:id/staff/remove', requireLogin, (req, res) => {
 
         if (!usuario_id) return res.json({ success: false, message: 'Informe o usuário.' });
 
-        const comm = db.prepare('SELECT dono_id FROM comunidades WHERE id = ?').get(commId);
+        const comm = await db.prepare('SELECT dono_id FROM comunidades WHERE id = ?').get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
         if (String(comm.dono_id) !== String(userId)) return res.json({ success: false, message: 'Apenas o dono pode gerenciar o staff.' });
 
-        db.prepare('UPDATE comunidade_membros SET cargo = ? WHERE comunidade_id = ? AND usuario_id = ?').run('membro', commId, String(usuario_id));
+        await db.prepare('UPDATE comunidade_membros SET cargo = ? WHERE comunidade_id = ? AND usuario_id = ?').run('membro', commId, String(usuario_id));
 
         return res.json({ success: true, message: 'Moderador removido com sucesso!' });
     } catch (err) {
@@ -7574,17 +7575,17 @@ app.post('/api/comunidade/:id/staff/remove', requireLogin, (req, res) => {
 });
 
 // GET /api/comunidade/:id/membros-para-staff - Lista membros que podem ser promovidos
-app.get('/api/comunidade/:id/membros-para-staff', requireLogin, (req, res) => {
+app.get('/api/comunidade/:id/membros-para-staff', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.id);
         const userId = req.session.userId;
 
-        const comm = db.prepare('SELECT dono_id FROM comunidades WHERE id = ?').get(commId);
+        const comm = await db.prepare('SELECT dono_id FROM comunidades WHERE id = ?').get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
         if (String(comm.dono_id) !== String(userId)) return res.json({ success: false, message: 'Apenas o dono pode gerenciar o staff.' });
 
         // Membros que não são moderadores e não são o dono
-        const membros = db.prepare(`
+        const membros = await db.prepare(`
             SELECT u.id, u.nome, u.foto_perfil
             FROM comunidade_membros cm
             JOIN usuarios u ON u.id = cm.usuario_id
@@ -7600,7 +7601,7 @@ app.get('/api/comunidade/:id/membros-para-staff', requireLogin, (req, res) => {
 });
 
 // GET /api/comunidade/:id/lookup-user?uid=xxx - Buscar usuário para staff
-app.get('/api/comunidade/:id/lookup-user', requireLogin, (req, res) => {
+app.get('/api/comunidade/:id/lookup-user', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.id);
         const userId = req.session.userId;
@@ -7608,16 +7609,16 @@ app.get('/api/comunidade/:id/lookup-user', requireLogin, (req, res) => {
 
         if (!uid) return res.json({ success: false, message: 'Informe o ID do usuário.' });
 
-        const comm = db.prepare('SELECT dono_id FROM comunidades WHERE id = ?').get(commId);
+        const comm = await db.prepare('SELECT dono_id FROM comunidades WHERE id = ?').get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
         if (String(comm.dono_id) !== String(userId)) return res.json({ success: false, message: 'Apenas o dono pode gerenciar o staff.' });
 
-        const user = db.prepare('SELECT id, nome, foto_perfil FROM usuarios WHERE id = ?').get(String(uid));
+        const user = await db.prepare('SELECT id, nome, foto_perfil FROM usuarios WHERE id = ?').get(String(uid));
         if (!user) return res.json({ success: false, message: 'Usuário não encontrado.' });
 
         if (String(uid) === String(comm.dono_id)) return res.json({ success: false, message: 'O dono já faz parte do staff.' });
 
-        const member = db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, String(uid));
+        const member = await db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, String(uid));
         if (!member) return res.json({ success: false, message: 'Este usuário não é membro da comunidade.' });
         if (member.cargo === 'moderador') return res.json({ success: false, message: 'Este usuário já é moderador.' });
 
@@ -7629,7 +7630,7 @@ app.get('/api/comunidade/:id/lookup-user', requireLogin, (req, res) => {
 });
 
 // ===== Sorte do Dia =====
-app.get('/api/sorte', (req, res) => {
+app.get('/api/sorte', async (req, res) => {
     if (!req.session.userId) return res.status(401).json({ error: 'Não autenticado' });
     // Calcular data na timezone configurada (ex: '-3 hours' -> -3)
     const tzStr = getTzOffset();
@@ -7645,42 +7646,42 @@ app.get('/api/sorte', (req, res) => {
 // ===== SORTEIOS DA COMUNIDADE =====
 
 // GET /api/sorteios/:commId - Listar sorteios da comunidade
-app.get('/api/sorteios/:commId', requireLogin, (req, res) => {
+app.get('/api/sorteios/:commId', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.commId);
         const userId = req.session.userId;
 
-        const comm = db.prepare(`
+        const comm = await db.prepare(`
             SELECT c.id, c.nome, c.foto, c.dono_id, c.tipo
             FROM comunidades c WHERE c.id = ?
         `).get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
         // Verificar se está bloqueado
-        const isBannedSorteio = db.prepare('SELECT id FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
+        const isBannedSorteio = await db.prepare('SELECT id FROM comunidade_bans WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
         if (isBannedSorteio) return res.json({ success: false, message: 'Você não pode acessar esta comunidade! Entre em contato com os donos da comunidade.' });
 
         // Comunidade privada: apenas membros podem ver sorteios
         if (comm.tipo === 'privada') {
-            const membroSort = db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
+            const membroSort = await db.prepare('SELECT id FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
             if (!membroSort && String(comm.dono_id) !== String(userId)) {
                 return res.json({ success: false, message: 'Esta comunidade é privada. Apenas membros podem acessar os sorteios.' });
             }
         }
 
-        const membrosCount = db.prepare('SELECT COUNT(*) as total FROM comunidade_membros WHERE comunidade_id = ?').get(commId).total;
-        const membership = db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
+        const membrosCount = (await db.prepare('SELECT COUNT(*) as total FROM comunidade_membros WHERE comunidade_id = ?').get(commId)).total;
+        const membership = await db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
         const isMember = !!membership;
         const isOwner = String(comm.dono_id) === String(userId);
         const isMod = membership && membership.cargo === 'moderador';
 
-        const membros = db.prepare(`
+        const membros = await db.prepare(`
             SELECT u.id, u.nome, u.foto_perfil
             FROM comunidade_membros cm JOIN usuarios u ON u.id = cm.usuario_id
             WHERE cm.comunidade_id = ? ORDER BY cm.entrou_em DESC LIMIT 9
         `).all(commId);
 
-        const sorteios = db.prepare(`
+        const sorteios = await db.prepare(`
             SELECT s.*,
                    u.nome as criador_nome,
                    (SELECT COUNT(*) FROM sorteio_participantes WHERE sorteio_id = s.id) as total_participantes
@@ -7692,16 +7693,16 @@ app.get('/api/sorteios/:commId', requireLogin, (req, res) => {
 
         // Enrich each sorteio with participation + winners
         for (const s of sorteios) {
-            const part = db.prepare('SELECT 1 FROM sorteio_participantes WHERE sorteio_id = ? AND usuario_id = ?').get(s.id, userId);
+            const part = await db.prepare('SELECT 1 FROM sorteio_participantes WHERE sorteio_id = ? AND usuario_id = ?').get(s.id, userId);
             s.participando = !!part;
 
             // Sorteio automático se expirado e não sorteado
             const tzOff = getTzOffset();
-            const now = db.prepare(`SELECT datetime('now','${tzOff}') as agora`).get().agora;
+            const now = (await db.prepare(`SELECT datetime('now','${tzOff}') as agora`).get()).agora;
             const dataFimNorm = s.data_fim ? s.data_fim.replace('T', ' ') : '';
             if (!s.sorteado && dataFimNorm && dataFimNorm <= now) {
                 // Verifica participantes
-                const participantes = db.prepare(`
+                const participantes = await db.prepare(`
                     SELECT sp.usuario_id, u.nome, u.foto_perfil
                     FROM sorteio_participantes sp
                     JOIN usuarios u ON u.id = sp.usuario_id
@@ -7710,11 +7711,11 @@ app.get('/api/sorteios/:commId', requireLogin, (req, res) => {
                 if (participantes.length === 0) {
                     s.sorteio_nao_realizado = true;
                     s.vencedores = [];
-                    db.prepare('UPDATE sorteios SET sorteado = 1 WHERE id = ?').run(s.id);
+                    await db.prepare('UPDATE sorteios SET sorteado = 1 WHERE id = ?').run(s.id);
                 } else if (participantes.length < (s.qtd_vencedores || 1)) {
                     s.sorteio_nao_realizado = true;
                     s.vencedores = [];
-                    db.prepare('UPDATE sorteios SET sorteado = 1 WHERE id = ?').run(s.id);
+                    await db.prepare('UPDATE sorteios SET sorteado = 1 WHERE id = ?').run(s.id);
                 } else {
                     // Sorteia vencedores únicos
                     const qtd = Math.min(s.qtd_vencedores || 1, participantes.length);
@@ -7722,22 +7723,22 @@ app.get('/api/sorteios/:commId', requireLogin, (req, res) => {
                     const shuffled = participantes.sort(() => Math.random() - 0.5);
                     const winners = shuffled.slice(0, qtd);
                     // Evita duplicidade de vencedores
-                    const existingWinners = db.prepare('SELECT usuario_id FROM sorteio_vencedores WHERE sorteio_id = ?').all(s.id).map(r => r.usuario_id);
-                    const insertWinner = db.prepare('INSERT INTO sorteio_vencedores (sorteio_id, usuario_id) VALUES (?, ?)');
+                    const existingWinners = (await db.prepare('SELECT usuario_id FROM sorteio_vencedores WHERE sorteio_id = ?').all(s.id)).map(r => r.usuario_id);
+                    const insertWinner = await db.prepare('INSERT INTO sorteio_vencedores (sorteio_id, usuario_id) VALUES (?, ?)');
                     for (const w of winners) {
                         if (!existingWinners.includes(w.usuario_id)) {
-                            insertWinner.run(s.id, w.usuario_id);
+                            await insertWinner.run(s.id, w.usuario_id);
                         }
                     }
-                    db.prepare('UPDATE sorteios SET sorteado = 1 WHERE id = ?').run(s.id);
+                    await db.prepare('UPDATE sorteios SET sorteado = 1 WHERE id = ?').run(s.id);
                     s.vencedores = winners.map(w => {
-                        const isMembro = !!db.prepare('SELECT 1 FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, w.usuario_id);
+                        const isMembro = !!await db.prepare('SELECT 1 FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, w.usuario_id);
                         return { id: w.usuario_id, nome: w.nome, foto_perfil: w.foto_perfil, is_membro: isMembro };
                     });
                 }
                 s.sorteado = 1;
             } else if (s.sorteado) {
-                s.vencedores = db.prepare(`
+                s.vencedores = await db.prepare(`
                     SELECT sv.usuario_id as id, u.nome, u.foto_perfil,
                            CASE WHEN cm.usuario_id IS NOT NULL THEN 1 ELSE 0 END as is_membro
                     FROM sorteio_vencedores sv
@@ -7766,12 +7767,12 @@ app.get('/api/sorteios/:commId', requireLogin, (req, res) => {
 });
 
 // POST /api/sorteios/:commId - Criar sorteio (owner only)
-app.post('/api/sorteios/:commId', requireLogin, (req, res) => {
+app.post('/api/sorteios/:commId', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.commId);
         const userId = req.session.userId;
 
-        const comm = db.prepare('SELECT dono_id FROM comunidades WHERE id = ?').get(commId);
+        const comm = await db.prepare('SELECT dono_id FROM comunidades WHERE id = ?').get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
 
         const isOwner = String(comm.dono_id) === String(userId);
@@ -7788,7 +7789,7 @@ app.post('/api/sorteios/:commId', requireLogin, (req, res) => {
         // Normalizar data_fim: trocar T por espaço para compatibilidade com datetime() do SQLite
         const dataFimNorm = data_fim ? data_fim.replace('T', ' ') : data_fim;
 
-        db.prepare(`
+        await db.prepare(`
             INSERT INTO sorteios (comunidade_id, criador_id, premio, regras, data_fim, qtd_vencedores, mod_participa)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         `).run(commId, userId, premio.trim(), regrasText, dataFimNorm, qtdV, modP);
@@ -7801,15 +7802,15 @@ app.post('/api/sorteios/:commId', requireLogin, (req, res) => {
 });
 
 // GET /api/sorteios/:commId/:sorteioId/participantes - Listar participantes
-app.get('/api/sorteios/:commId/:sorteioId/participantes', requireLogin, (req, res) => {
+app.get('/api/sorteios/:commId/:sorteioId/participantes', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.commId);
         const sorteioId = parseInt(req.params.sorteioId);
 
-        const sorteio = db.prepare('SELECT id FROM sorteios WHERE id = ? AND comunidade_id = ?').get(sorteioId, commId);
+        const sorteio = await db.prepare('SELECT id FROM sorteios WHERE id = ? AND comunidade_id = ?').get(sorteioId, commId);
         if (!sorteio) return res.json({ success: false, message: 'Sorteio não encontrado.' });
 
-        const participantes = db.prepare(`
+        const participantes = await db.prepare(`
             SELECT u.id, u.nome, u.foto_perfil
             FROM sorteio_participantes sp
             JOIN usuarios u ON u.id = sp.usuario_id
@@ -7825,21 +7826,21 @@ app.get('/api/sorteios/:commId/:sorteioId/participantes', requireLogin, (req, re
 });
 
 // POST /api/sorteios/:commId/:sorteioId/participar - Participar de um sorteio
-app.post('/api/sorteios/:commId/:sorteioId/participar', requireLogin, (req, res) => {
+app.post('/api/sorteios/:commId/:sorteioId/participar', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.commId);
         const sorteioId = parseInt(req.params.sorteioId);
         const userId = req.session.userId;
 
-        const membership = db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
+        const membership = await db.prepare('SELECT cargo FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, userId);
         if (!membership) return res.json({ success: false, message: 'Você precisa ser membro da comunidade.' });
 
-        const sorteio = db.prepare('SELECT * FROM sorteios WHERE id = ? AND comunidade_id = ?').get(sorteioId, commId);
+        const sorteio = await db.prepare('SELECT * FROM sorteios WHERE id = ? AND comunidade_id = ?').get(sorteioId, commId);
         if (!sorteio) return res.json({ success: false, message: 'Sorteio não encontrado.' });
         if (sorteio.sorteado) return res.json({ success: false, message: 'Este sorteio já foi encerrado.' });
 
         // Owner cannot participate
-        const comm = db.prepare('SELECT dono_id FROM comunidades WHERE id = ?').get(commId);
+        const comm = await db.prepare('SELECT dono_id FROM comunidades WHERE id = ?').get(commId);
         if (String(comm.dono_id) === String(userId)) return res.json({ success: false, message: 'O dono da comunidade não pode participar dos sorteios.' });
 
         // Check mod restriction
@@ -7849,17 +7850,17 @@ app.post('/api/sorteios/:commId/:sorteioId/participar', requireLogin, (req, res)
 
         // Check if ended by date
         const tzOff = getTzOffset();
-        const now = db.prepare(`SELECT datetime('now','${tzOff}') as agora`).get().agora;
+        const now = (await db.prepare(`SELECT datetime('now','${tzOff}') as agora`).get()).agora;
         const dataFimNorm = sorteio.data_fim ? sorteio.data_fim.replace('T', ' ') : '';
         if (dataFimNorm && dataFimNorm <= now) return res.json({ success: false, message: 'O prazo deste sorteio já expirou.' });
 
         // Already participating?
-        const existing = db.prepare('SELECT 1 FROM sorteio_participantes WHERE sorteio_id = ? AND usuario_id = ?').get(sorteioId, userId);
+        const existing = await db.prepare('SELECT 1 FROM sorteio_participantes WHERE sorteio_id = ? AND usuario_id = ?').get(sorteioId, userId);
         if (existing) return res.json({ success: false, message: 'Você já está participando deste sorteio.' });
 
-        db.prepare('INSERT INTO sorteio_participantes (sorteio_id, usuario_id) VALUES (?, ?)').run(sorteioId, userId);
+        await db.prepare('INSERT INTO sorteio_participantes (sorteio_id, usuario_id) VALUES (?, ?)').run(sorteioId, userId);
 
-        const total = db.prepare('SELECT COUNT(*) as c FROM sorteio_participantes WHERE sorteio_id = ?').get(sorteioId).c;
+        const total = (await db.prepare('SELECT COUNT(*) as c FROM sorteio_participantes WHERE sorteio_id = ?').get(sorteioId)).c;
         return res.json({ success: true, message: 'Você está participando! Boa sorte! 🍀', total_participantes: total });
     } catch(err) {
         console.error('Erro participar sorteio:', err);
@@ -7868,21 +7869,21 @@ app.post('/api/sorteios/:commId/:sorteioId/participar', requireLogin, (req, res)
 });
 
 // POST /api/sorteios/:commId/:sorteioId/sortear - Sortear vencedor(es) (owner only)
-app.post('/api/sorteios/:commId/:sorteioId/sortear', requireLogin, (req, res) => {
+app.post('/api/sorteios/:commId/:sorteioId/sortear', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.commId);
         const sorteioId = parseInt(req.params.sorteioId);
         const userId = req.session.userId;
 
-        const comm = db.prepare('SELECT dono_id FROM comunidades WHERE id = ?').get(commId);
+        const comm = await db.prepare('SELECT dono_id FROM comunidades WHERE id = ?').get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
         if (String(comm.dono_id) !== String(userId)) return res.json({ success: false, message: 'Apenas o dono pode sortear.' });
 
-        const sorteio = db.prepare('SELECT * FROM sorteios WHERE id = ? AND comunidade_id = ?').get(sorteioId, commId);
+        const sorteio = await db.prepare('SELECT * FROM sorteios WHERE id = ? AND comunidade_id = ?').get(sorteioId, commId);
         if (!sorteio) return res.json({ success: false, message: 'Sorteio não encontrado.' });
         if (sorteio.sorteado) return res.json({ success: false, message: 'Este sorteio já foi sorteado.' });
 
-        const participantes = db.prepare(`
+        const participantes = await db.prepare(`
             SELECT sp.usuario_id, u.nome, u.foto_perfil
             FROM sorteio_participantes sp
             JOIN usuarios u ON u.id = sp.usuario_id
@@ -7897,12 +7898,12 @@ app.post('/api/sorteios/:commId/:sorteioId/sortear', requireLogin, (req, res) =>
         const winners = shuffled.slice(0, qtd);
 
         // Save winners
-        const insertWinner = db.prepare('INSERT INTO sorteio_vencedores (sorteio_id, usuario_id) VALUES (?, ?)');
+        const insertWinner = await db.prepare('INSERT INTO sorteio_vencedores (sorteio_id, usuario_id) VALUES (?, ?)');
         for (const w of winners) {
-            insertWinner.run(sorteioId, w.usuario_id);
+            await insertWinner.run(sorteioId, w.usuario_id);
         }
 
-        db.prepare('UPDATE sorteios SET sorteado = 1 WHERE id = ?').run(sorteioId);
+        await db.prepare('UPDATE sorteios SET sorteado = 1 WHERE id = ?').run(sorteioId);
 
         return res.json({
             success: true,
@@ -7918,19 +7919,19 @@ app.post('/api/sorteios/:commId/:sorteioId/sortear', requireLogin, (req, res) =>
 });
 
 // POST /api/sorteios/:commId/:sorteioId/excluir - Excluir sorteio (owner only)
-app.post('/api/sorteios/:commId/:sorteioId/excluir', requireLogin, (req, res) => {
+app.post('/api/sorteios/:commId/:sorteioId/excluir', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.commId);
         const sorteioId = parseInt(req.params.sorteioId);
         const userId = req.session.userId;
 
-        const comm = db.prepare('SELECT dono_id FROM comunidades WHERE id = ?').get(commId);
+        const comm = await db.prepare('SELECT dono_id FROM comunidades WHERE id = ?').get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
         if (String(comm.dono_id) !== String(userId)) return res.json({ success: false, message: 'Apenas o dono pode excluir sorteios.' });
 
-        db.prepare('DELETE FROM sorteio_vencedores WHERE sorteio_id = ?').run(sorteioId);
-        db.prepare('DELETE FROM sorteio_participantes WHERE sorteio_id = ?').run(sorteioId);
-        db.prepare('DELETE FROM sorteios WHERE id = ? AND comunidade_id = ?').run(sorteioId, commId);
+        await db.prepare('DELETE FROM sorteio_vencedores WHERE sorteio_id = ?').run(sorteioId);
+        await db.prepare('DELETE FROM sorteio_participantes WHERE sorteio_id = ?').run(sorteioId);
+        await db.prepare('DELETE FROM sorteios WHERE id = ? AND comunidade_id = ?').run(sorteioId, commId);
 
         return res.json({ success: true, message: 'Sorteio excluído.' });
     } catch(err) {
@@ -7940,59 +7941,59 @@ app.post('/api/sorteios/:commId/:sorteioId/excluir', requireLogin, (req, res) =>
 });
 
 // ===== Job: Excluir contas de usuário agendadas (a cada 5 min) =====
-setInterval(() => {
+setInterval(async () => {
     try {
-        const expirados = db.prepare(`SELECT id, nome FROM usuarios WHERE conta_excluir_em IS NOT NULL AND conta_excluir_em <= ${agora()}`).all();
+        const expirados = await db.prepare(`SELECT id, nome FROM usuarios WHERE conta_excluir_em IS NOT NULL AND conta_excluir_em <= ${agora()}`).all();
         for (const user of expirados) {
             console.log(`[CLEANUP] Excluindo conta "${user.nome}" (id=${user.id}) - prazo de 24h expirado.`);
-            const deleteUser = db.transaction(() => {
-                try { db.prepare('DELETE FROM recados WHERE remetente_id = ? OR destinatario_id = ?').run(user.id, user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM mensagens WHERE remetente_id = ? OR destinatario_id = ?').run(user.id, user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM depoimentos WHERE remetente_id = ? OR destinatario_id = ?').run(user.id, user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM amizades WHERE remetente_id = ? OR destinatario_id = ?').run(user.id, user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM visitas WHERE visitante_id = ? OR visitado_id = ?').run(user.id, user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM fotos_comentarios WHERE usuario_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM fotos_curtidas WHERE usuario_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM fotos WHERE usuario_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM videos_comentarios WHERE usuario_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM videos_curtidas WHERE usuario_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM videos WHERE usuario_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM comunidade_membros WHERE usuario_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM comunidade_pendentes WHERE usuario_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM comunidade_bans WHERE usuario_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM bloqueios WHERE bloqueador_id = ? OR bloqueado_id = ?').run(user.id, user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM fas WHERE usuario_id = ? OR fa_id = ?').run(user.id, user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM convites WHERE criado_por = ? OR usado_por = ?').run(user.id, user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM sessoes WHERE user_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM avaliacoes_amigos WHERE avaliador_id = ? OR avaliado_id = ?').run(user.id, user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM avaliacoes_perfil WHERE avaliador_id = ? OR avaliado_id = ?').run(user.id, user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM notificacoes WHERE usuario_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM password_resets WHERE usuario_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM denuncia_mensagens WHERE remetente_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM denuncias WHERE denunciante_id = ? OR denunciado_id = ?').run(user.id, user.id); } catch(e) {}
-                try { db.prepare('UPDATE denuncias SET resolvido_por = NULL WHERE resolvido_por = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM denuncia_comunidade_mensagens WHERE remetente_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('UPDATE denuncias_comunidades SET resolvido_por = NULL WHERE resolvido_por = ?').run(user.id); } catch(e) {}
-                try { db.prepare('UPDATE denuncias_comunidades SET denunciante_id = NULL WHERE denunciante_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM sugestoes WHERE usuario_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM bugs WHERE usuario_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM anuncios WHERE admin_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM colheita_logs WHERE farm_owner_id = ? OR visitor_id = ?').run(user.id, user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM colheita_farms WHERE user_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM enquete_votos WHERE usuario_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM sorteio_participantes WHERE usuario_id = ?').run(user.id); } catch(e) {}
-                try { db.prepare('DELETE FROM sorteio_vencedores WHERE usuario_id = ?').run(user.id); } catch(e) {}
+            const deleteUser = db.transaction(async () => {
+                try { await db.prepare('DELETE FROM recados WHERE remetente_id = ? OR destinatario_id = ?').run(user.id, user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM mensagens WHERE remetente_id = ? OR destinatario_id = ?').run(user.id, user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM depoimentos WHERE remetente_id = ? OR destinatario_id = ?').run(user.id, user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM amizades WHERE remetente_id = ? OR destinatario_id = ?').run(user.id, user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM visitas WHERE visitante_id = ? OR visitado_id = ?').run(user.id, user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM fotos_comentarios WHERE usuario_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM fotos_curtidas WHERE usuario_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM fotos WHERE usuario_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM videos_comentarios WHERE usuario_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM videos_curtidas WHERE usuario_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM videos WHERE usuario_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM comunidade_membros WHERE usuario_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM comunidade_pendentes WHERE usuario_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM comunidade_bans WHERE usuario_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM bloqueios WHERE bloqueador_id = ? OR bloqueado_id = ?').run(user.id, user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM fas WHERE usuario_id = ? OR fa_id = ?').run(user.id, user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM convites WHERE criado_por = ? OR usado_por = ?').run(user.id, user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM sessoes WHERE user_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM avaliacoes_amigos WHERE avaliador_id = ? OR avaliado_id = ?').run(user.id, user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM avaliacoes_perfil WHERE avaliador_id = ? OR avaliado_id = ?').run(user.id, user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM notificacoes WHERE usuario_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM password_resets WHERE usuario_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM denuncia_mensagens WHERE remetente_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM denuncias WHERE denunciante_id = ? OR denunciado_id = ?').run(user.id, user.id); } catch(e) {}
+                try { await db.prepare('UPDATE denuncias SET resolvido_por = NULL WHERE resolvido_por = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM denuncia_comunidade_mensagens WHERE remetente_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('UPDATE denuncias_comunidades SET resolvido_por = NULL WHERE resolvido_por = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('UPDATE denuncias_comunidades SET denunciante_id = NULL WHERE denunciante_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM sugestoes WHERE usuario_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM bugs WHERE usuario_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM anuncios WHERE admin_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM colheita_logs WHERE farm_owner_id = ? OR visitor_id = ?').run(user.id, user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM colheita_farms WHERE user_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM enquete_votos WHERE usuario_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM sorteio_participantes WHERE usuario_id = ?').run(user.id); } catch(e) {}
+                try { await db.prepare('DELETE FROM sorteio_vencedores WHERE usuario_id = ?').run(user.id); } catch(e) {}
                 // Comunidades onde o usuário é dono: agendar exclusão
                 try {
-                    const comms = db.prepare('SELECT id FROM comunidades WHERE dono_id = ?').all(user.id);
+                    const comms = await db.prepare('SELECT id FROM comunidades WHERE dono_id = ?').all(user.id);
                     for (const c of comms) {
-                        db.prepare(`UPDATE comunidades SET excluir_em = ${agora()} WHERE id = ? AND excluir_em IS NULL`).run(c.id);
+                        await db.prepare(`UPDATE comunidades SET excluir_em = ${agora()} WHERE id = ? AND excluir_em IS NULL`).run(c.id);
                     }
                 } catch(e) {}
-                db.prepare('DELETE FROM usuarios WHERE id = ?').run(user.id);
+                await db.prepare('DELETE FROM usuarios WHERE id = ?').run(user.id);
             });
             try {
-                deleteUser();
+                await deleteUser();
                 console.log(`[CLEANUP] Conta "${user.nome}" excluída com sucesso.`);
             } catch(txErr) {
                 console.error(`[CLEANUP] Erro transacional ao excluir "${user.nome}":`, txErr);
@@ -8004,38 +8005,38 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 // ===== Job: Excluir comunidades agendadas (a cada 5 min) =====
-setInterval(() => {
+setInterval(async () => {
     try {
-        const expiradas = db.prepare(`SELECT id, nome FROM comunidades WHERE excluir_em IS NOT NULL AND excluir_em <= ${agora()}`).all();
+        const expiradas = await db.prepare(`SELECT id, nome FROM comunidades WHERE excluir_em IS NOT NULL AND excluir_em <= ${agora()}`).all();
         for (const comm of expiradas) {
             console.log(`[CLEANUP] Excluindo comunidade "${comm.nome}" (id=${comm.id}) - prazo de 24h expirado.`);
-            db.prepare('DELETE FROM comunidade_bans WHERE comunidade_id = ?').run(comm.id);
-            db.prepare('DELETE FROM comunidade_membros WHERE comunidade_id = ?').run(comm.id);
-            db.prepare('DELETE FROM comunidade_pendentes WHERE comunidade_id = ?').run(comm.id);
+            await db.prepare('DELETE FROM comunidade_bans WHERE comunidade_id = ?').run(comm.id);
+            await db.prepare('DELETE FROM comunidade_membros WHERE comunidade_id = ?').run(comm.id);
+            await db.prepare('DELETE FROM comunidade_pendentes WHERE comunidade_id = ?').run(comm.id);
             // Deletar tópicos e respostas do fórum
-            const topicos = db.prepare('SELECT id FROM forum_topicos WHERE comunidade_id = ?').all(comm.id);
+            const topicos = await db.prepare('SELECT id FROM forum_topicos WHERE comunidade_id = ?').all(comm.id);
             for (const t of topicos) {
-                db.prepare('DELETE FROM forum_respostas WHERE topico_id = ?').run(t.id);
+                await db.prepare('DELETE FROM forum_respostas WHERE topico_id = ?').run(t.id);
             }
-            db.prepare('DELETE FROM forum_topicos WHERE comunidade_id = ?').run(comm.id);
+            await db.prepare('DELETE FROM forum_topicos WHERE comunidade_id = ?').run(comm.id);
             // Deletar enquetes
             try {
-                const enquetes = db.prepare('SELECT id FROM enquetes WHERE comunidade_id = ?').all(comm.id);
+                const enquetes = await db.prepare('SELECT id FROM enquetes WHERE comunidade_id = ?').all(comm.id);
                 for (const enq of enquetes) {
-                    db.prepare('DELETE FROM enquete_opcoes WHERE enquete_id = ?').run(enq.id);
-                    db.prepare('DELETE FROM enquete_votos WHERE enquete_id = ?').run(enq.id);
+                    await db.prepare('DELETE FROM enquete_opcoes WHERE enquete_id = ?').run(enq.id);
+                    await db.prepare('DELETE FROM enquete_votos WHERE enquete_id = ?').run(enq.id);
                 }
-                db.prepare('DELETE FROM enquetes WHERE comunidade_id = ?').run(comm.id);
+                await db.prepare('DELETE FROM enquetes WHERE comunidade_id = ?').run(comm.id);
             } catch(e) {}
             // Deletar sorteios
             try {
-                db.prepare('DELETE FROM sorteio_participantes WHERE sorteio_id IN (SELECT id FROM sorteios WHERE comunidade_id = ?)').run(comm.id);
-                db.prepare('DELETE FROM sorteios WHERE comunidade_id = ?').run(comm.id);
+                await db.prepare('DELETE FROM sorteio_participantes WHERE sorteio_id IN (SELECT id FROM sorteios WHERE comunidade_id = ?)').run(comm.id);
+                await db.prepare('DELETE FROM sorteios WHERE comunidade_id = ?').run(comm.id);
             } catch(e) {}
             // Deletar denúncias
-            try { db.prepare('DELETE FROM denuncias_comunidades WHERE comunidade_id = ?').run(comm.id); } catch(e) {}
+            try { await db.prepare('DELETE FROM denuncias_comunidades WHERE comunidade_id = ?').run(comm.id); } catch(e) {}
             // Deletar a comunidade
-            db.prepare('DELETE FROM comunidades WHERE id = ?').run(comm.id);
+            await db.prepare('DELETE FROM comunidades WHERE id = ?').run(comm.id);
         }
     } catch (err) {
         console.error('[CLEANUP] Erro ao excluir comunidades agendadas:', err);
@@ -8043,7 +8044,7 @@ setInterval(() => {
 }, 5 * 60 * 1000); // a cada 5 minutos
 
 // ===== 404 e Error Handler =====
-app.use((req, res) => {
+app.use(async (req, res) => {
     if (req.path.startsWith('/api/')) {
         return res.status(404).json({ success: false, message: 'Rota não encontrada.' });
     }
