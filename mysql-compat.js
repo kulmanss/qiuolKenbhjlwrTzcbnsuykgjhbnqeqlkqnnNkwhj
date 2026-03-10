@@ -80,6 +80,9 @@ class MysqlCompat {
         // SQLite não aplica FKs por padrão, app já garante integridade
         s = s.replace(/,\s*FOREIGN\s+KEY\s*\([^)]*\)\s*REFERENCES\s+\w+\s*\([^)]*\)(\s+ON\s+(DELETE|UPDATE)\s+(CASCADE|SET\s+NULL|RESTRICT|NO\s+ACTION))*(\s+ON\s+(DELETE|UPDATE)\s+(CASCADE|SET\s+NULL|RESTRICT|NO\s+ACTION))*/gi, '');
 
+        // Remover inline REFERENCES em definições de coluna (MySQL ignora mas pode causar parse errors)
+        s = s.replace(/\s+REFERENCES\s+\w+\s*\([^)]*\)/gi, '');
+
         // CREATE INDEX IF NOT EXISTS → CREATE INDEX (MySQL não suporta IF NOT EXISTS para índices)
         s = s.replace(/CREATE\s+INDEX\s+IF\s+NOT\s+EXISTS/gi, 'CREATE INDEX');
 
