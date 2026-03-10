@@ -1,7 +1,4 @@
 ---
 deployment:
   tasks:
-    - /bin/cp server.js mysql-compat.js sorte.js package.json package-lock.json /home/chaseupc/yorkut.com.br/
-    - /bin/mkdir -p /home/chaseupc/yorkut.com.br/public && /bin/cp -R public/* /home/chaseupc/yorkut.com.br/public/
-    - /bin/cp -R uploads/* /home/chaseupc/yorkut.com.br/uploads/ 2>/dev/null ; true
-    - /bin/cp -R node_modules /home/chaseupc/yorkut.com.br/
+    - /bin/cp -R . /home/chaseupc/yorkut.com.br/
