@@ -1,10 +1,6 @@
 # Bloquear listagem de diretórios
 Options -Indexes
 
-# Phusion Passenger (cPanel Node.js)
-PassengerAppType node
-PassengerStartupFile server.js
-
 # Forçar HTTPS
 RewriteEngine On
 RewriteCond %{HTTPS} off
