@@ -4,4 +4,4 @@ deployment:
     - /bin/cp server.js mysql-compat.js sorte.js package.json package-lock.json /home/chaseupc/yorkut.com.br/
     - /bin/mkdir -p /home/chaseupc/yorkut.com.br/public && /bin/cp -R public/* /home/chaseupc/yorkut.com.br/public/
     - /bin/cp -R uploads/* /home/chaseupc/yorkut.com.br/uploads/ 2>/dev/null ; true
-    - cd /home/chaseupc/yorkut.com.br && export PATH=/home/chaseupc/nodevenv/yorkut.com.br/20/bin:$PATH && npm install --production
+    - cd /home/chaseupc/yorkut.com.br && /home/chaseupc/nodevenv/yorkut.com.br/20/bin/npm install --production
