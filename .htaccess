@@ -1,3 +1,11 @@
+# ===== Phusion Passenger (Node.js) =====
+PassengerAppRoot /home/chaseupc/yorkut.com.br
+PassengerBaseURI /
+PassengerNodejs /home/chaseupc/nodevenv/yorkut.com.br/20/bin/node
+PassengerAppType node
+PassengerStartupFile server.js
+PassengerFriendlyErrorPages on
+
 # Bloquear listagem de diretórios
 Options -Indexes
 
