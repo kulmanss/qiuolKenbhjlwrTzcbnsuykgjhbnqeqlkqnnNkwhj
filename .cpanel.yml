@@ -5,4 +5,5 @@ deployment:
     - /bin/cp -R server.js mysql-compat.js sorte.js package.json package-lock.json $DEPLOYPATH/
     - /bin/cp -R public/* $DEPLOYPATH/public/
     - /bin/cp -R uploads/* $DEPLOYPATH/uploads/ 2>/dev/null ; true
-    - cd $DEPLOYPATH && /usr/local/bin/npm install --production
+    - export PATH=/home/chaseupc/nodevenv/yorkut.com.br/20/bin:$PATH
+    - cd $DEPLOYPATH && npm install --production
