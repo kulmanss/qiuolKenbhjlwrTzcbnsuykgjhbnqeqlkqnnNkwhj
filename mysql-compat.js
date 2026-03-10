@@ -73,8 +73,13 @@ class MysqlCompat {
         // TEXT DEFAULT → VARCHAR(255) DEFAULT (MySQL não permite DEFAULT em TEXT)
         s = s.replace(/\bTEXT\s+DEFAULT\b/gi, 'VARCHAR(255) DEFAULT');
 
-        // Catch-all: TEXT → VARCHAR(255) (para FK/index compatibility; SQLite usa TEXT para tudo)
-        s = s.replace(/\bTEXT\b/gi, 'VARCHAR(255)');
+        // TEXT NOT NULL (sem DEFAULT, sem UNIQUE, sem PK) → LONGTEXT NOT NULL
+        s = s.replace(/\bTEXT\s+NOT\s+NULL\b(?!\s+(UNIQUE|DEFAULT|PRIMARY))/gi, 'LONGTEXT NOT NULL');
+
+        // Catch-all: TEXT sozinho (sem qualificadores já tratados) → LONGTEXT
+        s = s.replace(/\bTEXT\b(?!\s)/gi, 'LONGTEXT');
+        // TEXT seguido de vírgula ou fim de parêntese (e.g. "campo TEXT,")
+        s = s.replace(/\bTEXT(?=\s*[,)])/gi, 'LONGTEXT');
 
         // Remover FOREIGN KEY constraints (tipos incompatíveis após conversão SQLite→MySQL)
         // SQLite não aplica FKs por padrão, app já garante integridade
