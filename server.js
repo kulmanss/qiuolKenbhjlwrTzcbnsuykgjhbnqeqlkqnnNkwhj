@@ -77,7 +77,7 @@ if (!tzExiste) {
 
 // Função helper: retorna a hora atual na timezone configurada (SQL)
 let _cachedTzOffset = null;
-function getTzOffset() {
+async function getTzOffset() {
     if (_cachedTzOffset === null) {
         const row = await db.prepare("SELECT valor FROM configuracao WHERE chave = 'timezone_offset'").get();
         _cachedTzOffset = row ? row.valor : '-3 hours';
@@ -87,11 +87,10 @@ function getTzOffset() {
 function invalidateTzCache() { _cachedTzOffset = null; }
 
 // Helper JS: retorna datetime string ajustada para usar em queries
-function agora() { return 'NOW()'; }')`;
-}
+function agora() { return 'NOW()'; }
 
 // Helper: extrair @menções do texto e criar notificações
-function processarMencoes(mensagem, remetenteId, tipo, link) {
+async function processarMencoes(mensagem, remetenteId, tipo, link) {
     // Regex captura @[Nome do Usuário](uid)
     const regex = /@\[([^\]]+)\]\(([^)]+)\)/g;
     let match;
@@ -383,9 +382,9 @@ const privacidadeColunas = [
     'aparecer_pesquisa TEXT DEFAULT "sim"',
     'conta_excluir_em DATETIME DEFAULT NULL'
 ];
-privacidadeColunas.forEach(col => {
+for (const col of privacidadeColunas) {
     try { await db.exec('ALTER TABLE usuarios ADD COLUMN ' + col); } catch(e) {}
-});
+}
 
 // Migração: colunas do perfil completo
 const perfilColunas = [
@@ -434,9 +433,9 @@ const perfilColunas = [
     'cargo TEXT DEFAULT ""',
     'area_atuacao TEXT DEFAULT ""'
 ];
-perfilColunas.forEach(col => {
+for (const col of perfilColunas) {
     try { await db.exec('ALTER TABLE usuarios ADD COLUMN ' + col); } catch(e) {}
-});
+}
 
 // Migração: corrigir avatar padrão para usuárias femininas
 await db.prepare(`UPDATE usuarios SET foto_perfil = '/img/default-avatar-female.png' WHERE sexo = 'F' AND foto_perfil = '/img/default-avatar.png'`).run();
@@ -1301,7 +1300,7 @@ app.get('/robots.txt', async (req, res) => {
 });
 
 // ===== Helper: verificar banimento =====
-function checkBanStatus(user) {
+async function checkBanStatus(user) {
     if (!user || !user.banido) return null;
     if (user.banido_permanente) {
         return { banned: true, permanent: true, motivo: user.banido_motivo, banido_em: user.banido_em };
@@ -1337,11 +1336,11 @@ function blockedIdsSubquery(userId) {
 }
 
 // ===== Middleware de autenticação =====
-function requireLogin(req, res, next) {
+async function requireLogin(req, res, next) {
     if (req.session && req.session.userId) {
         // Verificar banimento
         const user = await db.prepare('SELECT id, banido, banido_permanente, banido_ate, banido_motivo, banido_em FROM usuarios WHERE id = ?').get(req.session.userId);
-        const banStatus = checkBanStatus(user);
+        const banStatus = await checkBanStatus(user);
         if (banStatus) {
             req.session.destroy();
             if (req.path.startsWith('/api/')) {
@@ -1358,7 +1357,7 @@ function requireLogin(req, res, next) {
     return res.redirect('/index.php');
 }
 
-function getUserFromSession(req) {
+async function getUserFromSession(req) {
     if (!req.session || !req.session.userId) return null;
     return await db.prepare('SELECT * FROM usuarios WHERE id = ?').get(req.session.userId);
 }
@@ -1471,7 +1470,7 @@ app.get('/api/ban-info', async (req, res) => {
     if (!uid) return res.json({ success: false });
     const user = await db.prepare('SELECT id, nome, banido, banido_permanente, banido_ate, banido_motivo, banido_em FROM usuarios WHERE id = ?').get(uid);
     if (!user) return res.json({ success: false });
-    const banStatus = checkBanStatus(user);
+    const banStatus = await checkBanStatus(user);
     if (!banStatus) return res.json({ success: false, message: 'Você não está banido.' });
     res.json({ success: true, nome: user.nome, ...banStatus });
 });
@@ -1645,7 +1644,7 @@ app.post('/api/login', loginLimiter, async (req, res) => {
         }
 
         // Verificar se está banido
-        const banStatus = checkBanStatus(user);
+        const banStatus = await checkBanStatus(user);
         if (banStatus) {
             // Salvar ID na sessão temporariamente para a página de banido
             req.session.bannedUserId = user.id;
@@ -1754,7 +1753,7 @@ app.post('/api/registro', registroLimiter, async (req, res) => {
 
 // API: Dados do usuário logado
 app.get('/api/me', requireLogin, async (req, res) => {
-    const user = getUserFromSession(req);
+    const user = await getUserFromSession(req);
     if (!user) {
         return res.json({ success: false, message: 'Sessão inválida.' });
     }
@@ -3747,7 +3746,7 @@ app.get('/api/bloqueio/status/:uid', requireLogin, async (req, res) => {
 // ===== ADMIN PANEL =====
 
 // Middleware: requer admin
-function requireAdmin(req, res, next) {
+async function requireAdmin(req, res, next) {
     if (!req.session || !req.session.userId) {
         if (req.path.startsWith('/api/')) return res.status(401).json({ success: false, message: 'Não autorizado.' });
         return res.redirect('/index.php');
@@ -4370,7 +4369,7 @@ app.get('/api/admin/denuncia-detalhe/:id', requireAdmin, async (req, res) => {
         if (!denuncia) return res.json({ success: false, message: 'Denúncia não encontrada.' });
 
         // Stats
-        const getStats = (uid) => ({
+        const getStats = async (uid) => ({
             totalAmigos: (await db.prepare("SELECT COUNT(*) as c FROM amizades WHERE (remetente_id=? OR destinatario_id=?) AND status='aceita'").get(uid, uid)).c,
             totalRecados: (await db.prepare("SELECT COUNT(*) as c FROM recados WHERE destinatario_id=?").get(uid)).c,
             totalFotos: (await db.prepare("SELECT COUNT(*) as c FROM fotos WHERE usuario_id=?").get(uid)).c,
@@ -4423,8 +4422,8 @@ app.get('/api/admin/denuncia-detalhe/:id', requireAdmin, async (req, res) => {
         res.json({
             success: true,
             denuncia,
-            denuncianteStats: getStats(denuncia.denunciante_id),
-            denunciadoStats: getStats(denuncia.denunciado_id),
+            denuncianteStats: await getStats(denuncia.denunciante_id),
+            denunciadoStats: await getStats(denuncia.denunciado_id),
             mensagens, recados, depoimentos, outrasDenuncias, chatMensagens
         });
     } catch(err) {
@@ -5407,7 +5406,7 @@ app.get('/api/colheita/farm/:uid', requireLogin, async (req, res) => {
         `).all(loggedUid, loggedUid, loggedUid);
 
         // Para cada amigo, obter seus dados de fazenda
-        const friendsData = friends.map(f => {
+        const friendsData = await Promise.all(friends.map(async f => {
             const ff = await ensureColheitaFarm(f.id);
             return {
                 id: f.id,
@@ -5417,7 +5416,7 @@ app.get('/api/colheita/farm/:uid', requireLogin, async (req, res) => {
                 ouro: ff.ouro,
                 kutcoin: 0
             };
-        });
+        }));
 
         // Obter logs recentes
         const logs = await db.prepare(`
@@ -6124,7 +6123,7 @@ app.get('/api/comunidade/:id', requireLogin, async (req, res) => {
         const commId = parseInt(req.params.id);
         const userId = req.session.userId;
 
-        const tzOff = getTzOffset();
+        const tzOff = await getTzOffset();
         const comm = await db.prepare(`
             SELECT c.*, datetime(c.criado_em, '${tzOff}') as criado_em_local, u.nome as dono_nome, u.foto_perfil as dono_foto
             FROM comunidades c
@@ -6208,7 +6207,7 @@ app.get('/api/comunidade/:id/membros', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.id);
         const userId = req.session.userId;
-        const tzOff = getTzOffset();
+        const tzOff = await getTzOffset();
 
         const comm = await db.prepare(`
             SELECT c.*, u.nome as dono_nome, u.foto_perfil as dono_foto
@@ -6403,7 +6402,7 @@ app.get('/api/comunidade/:id/pendentes', requireLogin, async (req, res) => {
     try {
         const commId = parseInt(req.params.id);
         const userId = req.session.userId;
-        const tzOff = getTzOffset();
+        const tzOff = await getTzOffset();
 
         const comm = await db.prepare('SELECT * FROM comunidades WHERE id = ?').get(commId);
         if (!comm) return res.json({ success: false, message: 'Comunidade não encontrada.' });
@@ -7207,7 +7206,7 @@ app.get('/api/enquetes/:commId', requireLogin, async (req, res) => {
 
         const userId = String(req.session.userId);
 
-        const result = enquetes.map(enq => {
+        const result = await Promise.all(enquetes.map(async enq => {
             const opcoes = await db.prepare(`
                 SELECT o.*, 
                     (SELECT COUNT(*) FROM enquete_votos WHERE opcao_id = o.id) as votos
@@ -7233,7 +7232,7 @@ app.get('/api/enquetes/:commId', requireLogin, async (req, res) => {
                 meu_voto: meuVoto ? meuVoto.opcao_id : null,
                 is_owner: enq.criador_id === userId || comm.dono_id === userId
             };
-        });
+        }));
 
         const membrosCount = (await db.prepare('SELECT COUNT(*) as c FROM comunidade_membros WHERE comunidade_id = ?').get(commId)).c;
         const isOwner = String(comm.dono_id) === String(userId);
@@ -7633,7 +7632,7 @@ app.get('/api/comunidade/:id/lookup-user', requireLogin, async (req, res) => {
 app.get('/api/sorte', async (req, res) => {
     if (!req.session.userId) return res.status(401).json({ error: 'Não autenticado' });
     // Calcular data na timezone configurada (ex: '-3 hours' -> -3)
-    const tzStr = getTzOffset();
+    const tzStr = await getTzOffset();
     const offsetHours = parseInt(tzStr.replace(/\s*hours?\s*/i, ''), 10) || -3;
     const now = new Date(Date.now() + offsetHours * 3600000);
     const dateStr = now.getUTCFullYear() + '-' + (now.getUTCMonth()+1) + '-' + now.getUTCDate();
@@ -7697,7 +7696,7 @@ app.get('/api/sorteios/:commId', requireLogin, async (req, res) => {
             s.participando = !!part;
 
             // Sorteio automático se expirado e não sorteado
-            const tzOff = getTzOffset();
+            const tzOff = await getTzOffset();
             const now = (await db.prepare(`SELECT datetime('now','${tzOff}') as agora`).get()).agora;
             const dataFimNorm = s.data_fim ? s.data_fim.replace('T', ' ') : '';
             if (!s.sorteado && dataFimNorm && dataFimNorm <= now) {
@@ -7731,10 +7730,10 @@ app.get('/api/sorteios/:commId', requireLogin, async (req, res) => {
                         }
                     }
                     await db.prepare('UPDATE sorteios SET sorteado = 1 WHERE id = ?').run(s.id);
-                    s.vencedores = winners.map(w => {
+                    s.vencedores = await Promise.all(winners.map(async w => {
                         const isMembro = !!await db.prepare('SELECT 1 FROM comunidade_membros WHERE comunidade_id = ? AND usuario_id = ?').get(commId, w.usuario_id);
                         return { id: w.usuario_id, nome: w.nome, foto_perfil: w.foto_perfil, is_membro: isMembro };
-                    });
+                    }));
                 }
                 s.sorteado = 1;
             } else if (s.sorteado) {
@@ -7849,7 +7848,7 @@ app.post('/api/sorteios/:commId/:sorteioId/participar', requireLogin, async (req
         }
 
         // Check if ended by date
-        const tzOff = getTzOffset();
+        const tzOff = await getTzOffset();
         const now = (await db.prepare(`SELECT datetime('now','${tzOff}') as agora`).get()).agora;
         const dataFimNorm = sorteio.data_fim ? sorteio.data_fim.replace('T', ' ') : '';
         if (dataFimNorm && dataFimNorm <= now) return res.json({ success: false, message: 'O prazo deste sorteio já expirou.' });
